@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbletea"
 	"github.com/clobrano/kubepose/internal/config"
 	"github.com/clobrano/kubepose/internal/kubectl"
+	"github.com/clobrano/kubepose/internal/tui/components/header"
 )
 
 // ViewState represents the current view mode of the application
@@ -28,6 +31,9 @@ type Model struct {
 	width        int
 	height       int
 
+	// Components
+	header *header.Model
+
 	// Data state
 	currentContext   string
 	currentNamespace string
@@ -44,6 +50,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		config:    cfg,
 		kubectl:   k,
 		viewState: ViewList,
+		header:    header.New("", "", 0),
 	}
 }
 
@@ -67,10 +74,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.header.SetWidth(msg.Width)
 
 	case ContextLoadedMsg:
 		m.currentContext = msg.Context
 		m.currentNamespace = msg.Namespace
+		m.header.SetContext(msg.Context)
+		m.header.SetNamespace(msg.Namespace)
 
 	case ResourcesLoadedMsg:
 		m.resources = msg.Data
@@ -85,7 +95,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the current state
 func (m *Model) View() string {
-	return "KubePose TUI - Press 'q' to quit"
+	var b strings.Builder
+
+	// Header
+	b.WriteString(m.header.View())
+	b.WriteString("\n")
+
+	// Placeholder content
+	b.WriteString("\nKubePose TUI - Press 'q' to quit\n")
+
+	// Show error if any
+	if m.lastError != nil {
+		b.WriteString("\nError: ")
+		b.WriteString(m.lastError.Error())
+		b.WriteString("\n")
+	}
+
+	// Show resource count if loaded
+	if m.resources != nil && len(m.resources.Rows) > 0 {
+		b.WriteString("\nResources loaded: ")
+		b.WriteString(strings.Join(m.resources.Headers, " | "))
+		b.WriteString("\n")
+		for i, row := range m.resources.Rows {
+			if i >= 5 {
+				break
+			}
+			b.WriteString("  ")
+			b.WriteString(strings.Join(row, " | "))
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
 }
 
 // loadContext returns a command to load the current kubectl context
