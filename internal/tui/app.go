@@ -7,6 +7,7 @@ import (
 	"github.com/clobrano/kubepose/internal/config"
 	"github.com/clobrano/kubepose/internal/kubectl"
 	"github.com/clobrano/kubepose/internal/tui/components/header"
+	"github.com/clobrano/kubepose/internal/tui/components/tabs"
 )
 
 // ViewState represents the current view mode of the application
@@ -33,6 +34,7 @@ type Model struct {
 
 	// Components
 	header *header.Model
+	tabs   *tabs.Model
 
 	// Data state
 	currentContext   string
@@ -46,11 +48,18 @@ type Model struct {
 
 // NewModel creates a new application model
 func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
+	// Extract tab names from config
+	tabNames := make([]string, len(cfg.Tabs))
+	for i, tab := range cfg.Tabs {
+		tabNames[i] = tab.Name
+	}
+
 	return &Model{
 		config:    cfg,
 		kubectl:   k,
 		viewState: ViewList,
 		header:    header.New("", "", 0),
+		tabs:      tabs.New(tabNames, 0),
 	}
 }
 
@@ -69,12 +78,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "tab":
+			m.tabs.Next()
+			m.currentTab = m.tabs.Active()
+			return m, m.loadResources()
+		case "shift+tab":
+			m.tabs.Previous()
+			m.currentTab = m.tabs.Active()
+			return m, m.loadResources()
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			idx := int(msg.String()[0] - '1')
+			if idx < m.tabs.Count() {
+				m.tabs.SetActive(idx)
+				m.currentTab = idx
+				return m, m.loadResources()
+			}
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.header.SetWidth(msg.Width)
+		m.tabs.SetWidth(msg.Width)
 
 	case ContextLoadedMsg:
 		m.currentContext = msg.Context
@@ -101,8 +126,12 @@ func (m *Model) View() string {
 	b.WriteString(m.header.View())
 	b.WriteString("\n")
 
+	// Tabs
+	b.WriteString(m.tabs.View())
+	b.WriteString("\n")
+
 	// Placeholder content
-	b.WriteString("\nKubePose TUI - Press 'q' to quit\n")
+	b.WriteString("\nPress 'q' to quit, Tab/Shift+Tab to switch tabs\n")
 
 	// Show error if any
 	if m.lastError != nil {
