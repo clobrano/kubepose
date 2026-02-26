@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/clobrano/kubepose/internal/config"
 	"github.com/clobrano/kubepose/internal/kubectl"
+	"github.com/clobrano/kubepose/internal/tui/components/detail"
 	"github.com/clobrano/kubepose/internal/tui/components/header"
 	"github.com/clobrano/kubepose/internal/tui/components/list"
 	"github.com/clobrano/kubepose/internal/tui/components/search"
@@ -39,6 +40,7 @@ type Model struct {
 	tabs   *tabs.Model
 	list   *list.Model
 	search *search.Model
+	detail *detail.Model
 
 	// Data state
 	currentContext   string
@@ -66,6 +68,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		tabs:      tabs.New(tabNames, 0),
 		list:      list.New([]string{}, [][]string{}),
 		search:    search.New(),
+		detail:    detail.New("", "", detail.FormatTable),
 	}
 }
 
@@ -79,6 +82,41 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles all messages and updates the model state
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle detail view state
+	if m.viewState == ViewDetail {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q", "esc":
+				m.viewState = ViewList
+				return m, nil
+			case "j", "down":
+				m.detail.ScrollDown()
+			case "k", "up":
+				m.detail.ScrollUp()
+			case "g":
+				m.detail.ScrollToTop()
+			case "G":
+				m.detail.ScrollToBottom()
+			case "ctrl+d", "pgdown":
+				m.detail.PageDown()
+			case "ctrl+u", "pgup":
+				m.detail.PageUp()
+			case "Y":
+				return m, m.loadResourceDetail(detail.FormatYAML)
+			case "J":
+				return m, m.loadResourceDetail(detail.FormatJSON)
+			}
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			m.detail.SetSize(msg.Width, msg.Height-2)
+		case DetailLoadedMsg:
+			m.detail.SetContent(msg.ResourceName, msg.Content, detail.Format(msg.Format))
+		}
+		return m, nil
+	}
+
 	// If search is active, forward messages to search component
 	if m.search.IsActive() {
 		var cmd tea.Cmd
@@ -110,6 +148,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.search.Activate()
 			return m, nil
+		case "enter":
+			// Show detail view (table format)
+			return m, m.loadResourceDetail(detail.FormatTable)
+		case "Y":
+			// Show detail view (YAML format)
+			return m, m.loadResourceDetail(detail.FormatYAML)
+		case "J":
+			// Show detail view (JSON format)
+			return m, m.loadResourceDetail(detail.FormatJSON)
 		case "tab":
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
@@ -175,6 +222,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the current state
 func (m *Model) View() string {
+	// Detail view is full screen
+	if m.viewState == ViewDetail {
+		return m.detail.View()
+	}
+
 	var b strings.Builder
 
 	// Header
@@ -206,7 +258,7 @@ func (m *Model) View() string {
 	if m.search.IsActive() {
 		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
 	} else {
-		b.WriteString("[j/k] navigate  [/] search  [Tab] switch tab  [r] refresh  [q] quit")
+		b.WriteString("[j/k] navigate  [Enter] details  [Y] yaml  [J] json  [/] search  [r] refresh  [q] quit")
 	}
 
 	return b.String()
@@ -253,5 +305,56 @@ func (m *Model) loadResources() tea.Cmd {
 
 		data := kubectl.ParseTableOutput(output)
 		return ResourcesLoadedMsg{Data: data}
+	}
+}
+
+// loadResourceDetail returns a command to load detail for the selected resource
+func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
+	return func() tea.Msg {
+		selected := m.list.SelectedItem()
+		if selected == nil || len(selected) == 0 {
+			return ErrorMsg{Err: nil}
+		}
+
+		resourceName := selected[0]
+		tab := m.config.Tabs[m.currentTab]
+
+		// Determine namespace from resource or current namespace
+		namespace := m.currentNamespace
+		if tab.AllNamespaces && len(selected) > 1 {
+			// For all-namespaces view, namespace is usually in the first column
+			namespaceIdx := m.resources.GetColumnIndex("NAMESPACE")
+			if namespaceIdx >= 0 && namespaceIdx < len(selected) {
+				namespace = selected[namespaceIdx]
+			}
+		} else if tab.Namespace != "" {
+			namespace = tab.Namespace
+		}
+
+		var content string
+		var err error
+
+		switch format {
+		case detail.FormatYAML:
+			content, err = m.kubectl.GetResourceYAML(tab.Resource, resourceName, namespace)
+		case detail.FormatJSON:
+			content, err = m.kubectl.GetResourceJSON(tab.Resource, resourceName, namespace)
+		default:
+			// Table format - use describe
+			content, _, err = m.kubectl.Execute("describe", tab.Resource, resourceName, "-n", namespace)
+		}
+
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+
+		m.viewState = ViewDetail
+		m.detail.SetSize(m.width, m.height-2)
+
+		return DetailLoadedMsg{
+			ResourceName: resourceName,
+			Content:      content,
+			Format:       int(format),
+		}
 	}
 }

@@ -28,3 +28,10 @@ type RefreshMsg struct{}
 type TabChangedMsg struct {
 	Index int
 }
+
+// DetailLoadedMsg is sent when resource detail is loaded
+type DetailLoadedMsg struct {
+	ResourceName string
+	Content      string
+	Format       int // 0=Table, 1=YAML, 2=JSON
+}
