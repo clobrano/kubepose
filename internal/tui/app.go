@@ -7,6 +7,7 @@ import (
 	"github.com/clobrano/kubepose/internal/config"
 	"github.com/clobrano/kubepose/internal/kubectl"
 	"github.com/clobrano/kubepose/internal/tui/components/header"
+	"github.com/clobrano/kubepose/internal/tui/components/list"
 	"github.com/clobrano/kubepose/internal/tui/components/tabs"
 )
 
@@ -35,6 +36,7 @@ type Model struct {
 	// Components
 	header *header.Model
 	tabs   *tabs.Model
+	list   *list.Model
 
 	// Data state
 	currentContext   string
@@ -60,6 +62,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		viewState: ViewList,
 		header:    header.New("", "", 0),
 		tabs:      tabs.New(tabNames, 0),
+		list:      list.New([]string{}, [][]string{}),
 	}
 }
 
@@ -93,6 +96,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentTab = idx
 				return m, m.loadResources()
 			}
+		case "j", "down":
+			m.list.MoveDown()
+		case "k", "up":
+			m.list.MoveUp()
+		case "g":
+			m.list.MoveToTop()
+		case "G":
+			m.list.MoveToBottom()
+		case "r":
+			return m, m.loadResources()
 		}
 
 	case tea.WindowSizeMsg:
@@ -100,6 +113,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.header.SetWidth(msg.Width)
 		m.tabs.SetWidth(msg.Width)
+		// List height = total height - header (1) - tabs (1) - footer area (3)
+		listHeight := msg.Height - 5
+		if listHeight < 3 {
+			listHeight = 3
+		}
+		m.list.SetSize(msg.Width, listHeight)
 
 	case ContextLoadedMsg:
 		m.currentContext = msg.Context
@@ -110,6 +129,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ResourcesLoadedMsg:
 		m.resources = msg.Data
 		m.lastError = nil
+		if msg.Data != nil {
+			m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
+		}
 
 	case ErrorMsg:
 		m.lastError = msg.Err
@@ -130,30 +152,19 @@ func (m *Model) View() string {
 	b.WriteString(m.tabs.View())
 	b.WriteString("\n")
 
-	// Placeholder content
-	b.WriteString("\nPress 'q' to quit, Tab/Shift+Tab to switch tabs\n")
-
 	// Show error if any
 	if m.lastError != nil {
 		b.WriteString("\nError: ")
 		b.WriteString(m.lastError.Error())
 		b.WriteString("\n")
+	} else {
+		// Resource list
+		b.WriteString(m.list.View())
 	}
 
-	// Show resource count if loaded
-	if m.resources != nil && len(m.resources.Rows) > 0 {
-		b.WriteString("\nResources loaded: ")
-		b.WriteString(strings.Join(m.resources.Headers, " | "))
-		b.WriteString("\n")
-		for i, row := range m.resources.Rows {
-			if i >= 5 {
-				break
-			}
-			b.WriteString("  ")
-			b.WriteString(strings.Join(row, " | "))
-			b.WriteString("\n")
-		}
-	}
+	// Footer/help
+	b.WriteString("\n\n")
+	b.WriteString("[j/k] navigate  [Tab] switch tab  [r] refresh  [q] quit")
 
 	return b.String()
 }
