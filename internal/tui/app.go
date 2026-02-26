@@ -8,6 +8,7 @@ import (
 	"github.com/clobrano/kubepose/internal/kubectl"
 	"github.com/clobrano/kubepose/internal/tui/components/header"
 	"github.com/clobrano/kubepose/internal/tui/components/list"
+	"github.com/clobrano/kubepose/internal/tui/components/search"
 	"github.com/clobrano/kubepose/internal/tui/components/tabs"
 )
 
@@ -37,6 +38,7 @@ type Model struct {
 	header *header.Model
 	tabs   *tabs.Model
 	list   *list.Model
+	search *search.Model
 
 	// Data state
 	currentContext   string
@@ -63,6 +65,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		header:    header.New("", "", 0),
 		tabs:      tabs.New(tabNames, 0),
 		list:      list.New([]string{}, [][]string{}),
+		search:    search.New(),
 	}
 }
 
@@ -76,11 +79,37 @@ func (m *Model) Init() tea.Cmd {
 
 // Update handles all messages and updates the model state
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// If search is active, forward messages to search component
+	if m.search.IsActive() {
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(msg)
+
+		// Update list with filtered results
+		if m.resources != nil {
+			filtered := m.search.FilteredItems()
+			m.list.SetItems(m.resources.Headers, filtered)
+		}
+
+		// Check if search was deactivated (Esc pressed)
+		if !m.search.IsActive() && m.resources != nil {
+			m.list.SetItems(m.resources.Headers, m.resources.Rows)
+		}
+
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "/":
+			// Activate search
+			if m.resources != nil {
+				m.search.SetItems(m.resources.Rows)
+			}
+			m.search.Activate()
+			return m, nil
 		case "tab":
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
@@ -113,8 +142,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.header.SetWidth(msg.Width)
 		m.tabs.SetWidth(msg.Width)
-		// List height = total height - header (1) - tabs (1) - footer area (3)
+		m.search.SetWidth(msg.Width)
+		// List height = total height - header (1) - tabs (1) - search (1 if active) - footer area (3)
 		listHeight := msg.Height - 5
+		if m.search.IsActive() {
+			listHeight--
+		}
 		if listHeight < 3 {
 			listHeight = 3
 		}
@@ -152,6 +185,12 @@ func (m *Model) View() string {
 	b.WriteString(m.tabs.View())
 	b.WriteString("\n")
 
+	// Search bar (if active)
+	if m.search.IsActive() {
+		b.WriteString(m.search.View())
+		b.WriteString("\n")
+	}
+
 	// Show error if any
 	if m.lastError != nil {
 		b.WriteString("\nError: ")
@@ -164,7 +203,11 @@ func (m *Model) View() string {
 
 	// Footer/help
 	b.WriteString("\n\n")
-	b.WriteString("[j/k] navigate  [Tab] switch tab  [r] refresh  [q] quit")
+	if m.search.IsActive() {
+		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
+	} else {
+		b.WriteString("[j/k] navigate  [/] search  [Tab] switch tab  [r] refresh  [q] quit")
+	}
 
 	return b.String()
 }
