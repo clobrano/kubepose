@@ -53,6 +53,7 @@ func New() *Model {
 // Activate enables search mode and focuses the input
 func (m *Model) Activate() {
 	m.active = true
+	m.query = ""
 	m.input.Focus()
 	m.input.SetValue("")
 	m.filteredRows = m.originalRows
@@ -80,8 +81,8 @@ func (m *Model) IsFiltered() bool {
 // SetItems sets the searchable items
 func (m *Model) SetItems(rows [][]string) {
 	m.originalRows = rows
-	if m.active && m.input.Value() != "" {
-		m.filteredRows = FilterRows(m.input.Value(), rows)
+	if m.query != "" {
+		m.filteredRows = FilterRows(m.query, rows)
 	} else {
 		m.filteredRows = rows
 	}
