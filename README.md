@@ -14,6 +14,10 @@ A terminal UI for exploring and managing Kubernetes clusters. Browse resources, 
 
 ## Installation
 
+```bash
+go install github.com/clobrano/kubepose@latest
+```
+
 ### From source
 
 ```bash

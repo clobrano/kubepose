@@ -4,7 +4,7 @@ BINARY_NAME=kubepose
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 build:
-	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY_NAME) ./cmd/kubepose
+	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY_NAME) .
 
 run: build
 	./$(BINARY_NAME)
