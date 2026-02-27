@@ -615,17 +615,26 @@ func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
 		// Determine namespace and resource name from the selected row
 		namespace := m.currentNamespace
 		resourceName := selected[0]
+		namespaceFromColumn := false
 
 		// Check if there's a NAMESPACE column (for -A commands)
 		if m.resources != nil {
 			namespaceIdx := m.resources.GetColumnIndex("NAMESPACE")
 			if namespaceIdx >= 0 && namespaceIdx < len(selected) {
 				namespace = selected[namespaceIdx]
+				namespaceFromColumn = true
 			}
 			// NAME column might be after NAMESPACE
 			nameIdx := m.resources.GetColumnIndex("NAME")
 			if nameIdx >= 0 && nameIdx < len(selected) {
 				resourceName = selected[nameIdx]
+			}
+		}
+
+		// No NAMESPACE column: fall back to the namespace in the tab command
+		if !namespaceFromColumn {
+			if cmdNs := getNamespaceFromCommand(m.getCurrentTabCommand()); cmdNs != "" {
+				namespace = cmdNs
 			}
 		}
 
