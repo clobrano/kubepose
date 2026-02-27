@@ -69,12 +69,12 @@ func NewKeyMap(cfg config.Keybindings) *KeyMap {
 			key.WithHelp("↓/j", "down"),
 		),
 		TabNext: key.NewBinding(
-			key.WithKeys(cfg.TabNext),
-			key.WithHelp("tab", "next tab"),
+			key.WithKeys(cfg.TabNext, "right", "l"),
+			key.WithHelp("→/l/tab", "next tab"),
 		),
 		TabPrev: key.NewBinding(
-			key.WithKeys(cfg.TabPrev),
-			key.WithHelp("shift+tab", "prev tab"),
+			key.WithKeys(cfg.TabPrev, "left", "h"),
+			key.WithHelp("←/h/shift+tab", "prev tab"),
 		),
 		Describe: key.NewBinding(
 			key.WithKeys(cfg.Describe),

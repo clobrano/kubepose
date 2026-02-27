@@ -286,11 +286,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "J":
 			// Show detail view (JSON format)
 			return m, m.loadResourceDetail(detail.FormatJSON)
-		case "tab":
+		case "tab", "right", "l":
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
-		case "shift+tab":
+		case "shift+tab", "left", "h":
 			m.tabs.Previous()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
@@ -323,10 +323,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			// Describe selected resource(s)
 			return m, m.describeResources()
-		case "l":
+		case "L":
 			// View logs (for pods)
 			return m, m.viewLogs(false)
-		case "L":
+		case "ctrl+l":
 			// Follow logs (for pods)
 			return m, m.viewLogs(true)
 		case "D":
@@ -473,7 +473,7 @@ func (m *Model) View() string {
 	} else if m.currentTab == SearchTabIndex {
 		b.WriteString("[Enter] enter command  [/]filter results  [r]efresh  [q]uit")
 	} else {
-		b.WriteString("[d]escribe [l]ogs [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [/]search [r]efresh [?]help")
+		b.WriteString("[d]escribe [L]ogs [ctrl+l]follow [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [/]search [r]efresh [?]help")
 	}
 
 	return b.String()
