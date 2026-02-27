@@ -35,6 +35,24 @@ const (
 // SearchTabIndex is the index of the special Search tab (always first)
 const SearchTabIndex = 0
 
+// getNamespaceFromCommand extracts the explicit namespace from a kubectl command string.
+// Returns "" if -A/--all-namespaces is used or no namespace flag is present.
+func getNamespaceFromCommand(command string) string {
+	parts := strings.Fields(command)
+	for i, part := range parts {
+		if part == "-A" || part == "--all-namespaces" {
+			return ""
+		}
+		if (part == "-n" || part == "--namespace") && i+1 < len(parts) {
+			return parts[i+1]
+		}
+		if strings.HasPrefix(part, "--namespace=") {
+			return strings.TrimPrefix(part, "--namespace=")
+		}
+	}
+	return ""
+}
+
 // getResourceTypeFromCommand extracts the resource type from a kubectl command string
 // e.g., "get pods -A" returns "pods", "get deployments -n default" returns "deployments"
 func getResourceTypeFromCommand(command string) string {
@@ -108,6 +126,9 @@ type Model struct {
 	searchInput   *dialog.InputModel
 	searchCommand string // Last executed search command
 
+	// Per-tab search state: saves the last confirmed filter for each tab index
+	tabSearchStates map[int]string
+
 	// Error state
 	lastError error
 }
@@ -126,16 +147,17 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	searchInput.WithValue("")
 
 	return &Model{
-		config:      cfg,
-		kubectl:     k,
-		viewState:   ViewList,
-		currentTab:  1, // Start on first configured tab, not Search
-		header:      header.New("", "", 0),
-		tabs:        tabs.New(tabNames, 1),
-		list:        list.New([]string{}, [][]string{}),
-		search:      search.New(),
-		detail:      detail.New("", "", detail.FormatTable),
-		searchInput: searchInput,
+		config:          cfg,
+		kubectl:         k,
+		viewState:       ViewList,
+		currentTab:      1, // Start on first configured tab, not Search
+		header:          header.New("", "", 0),
+		tabs:            tabs.New(tabNames, 1),
+		list:            list.New([]string{}, [][]string{}),
+		search:          search.New(),
+		detail:          detail.New("", "", detail.FormatTable),
+		searchInput:     searchInput,
+		tabSearchStates: make(map[int]string),
 	}
 }
 
@@ -268,6 +290,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clear an active filter (confirmed via Enter)
 			if m.search.IsFiltered() {
 				m.search.Deactivate()
+				delete(m.tabSearchStates, m.currentTab)
 				if m.resources != nil {
 					m.list.SetItems(m.resources.Headers, m.resources.Rows)
 				}
@@ -296,16 +319,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Show detail view (JSON format)
 			return m, m.loadResourceDetail(detail.FormatJSON)
 		case "tab", "right", "l":
+			m.saveCurrentTabSearch()
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
 		case "shift+tab", "left", "h":
+			m.saveCurrentTabSearch()
 			m.tabs.Previous()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
 			if idx < m.tabs.Count() {
+				m.saveCurrentTabSearch()
 				m.tabs.SetActive(idx)
 				m.currentTab = idx
 				return m, m.handleTabChange()
@@ -385,8 +411,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastError = nil
 		if msg.Data != nil {
 			if m.search.IsFiltered() {
-				// Re-apply the active filter to the new data
+				// Refresh on same tab: re-apply the active filter to the new data
 				m.search.SetItems(msg.Data.Rows)
+				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
+			} else if savedQuery := m.tabSearchStates[m.currentTab]; savedQuery != "" {
+				// Returning to a tab that had a saved filter: restore it
+				m.search.SetItems(msg.Data.Rows)
+				m.search.RestoreFilter(savedQuery)
 				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
 			} else {
 				m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
@@ -415,6 +446,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.detail.SetContent(title+" (logs)", msg.Content, detail.FormatTable)
 		m.detail.SetSize(m.width, m.height-2)
+
+	case ContainersLoadedMsg:
+		m.pendingNames = []string{msg.PodName}
+		m.pendingNs = msg.Namespace
+		if msg.Follow {
+			m.pendingAction = "container-logs-follow"
+		} else {
+			m.pendingAction = "container-logs"
+		}
+		m.selector = dialog.NewSelector("Select Container", msg.Containers)
+		m.selector.SetSize(m.width, m.height)
+		m.viewState = ViewSelector
 
 	case RefreshMsg:
 		return m, tea.Batch(m.loadContext(), m.loadResources())
@@ -517,6 +560,13 @@ func (m *Model) loadContext() tea.Cmd {
 }
 
 // handleTabChange handles switching to a new tab
+// saveCurrentTabSearch saves the active search filter for the current tab and
+// deactivates the search component so the next tab starts clean.
+func (m *Model) saveCurrentTabSearch() {
+	m.tabSearchStates[m.currentTab] = m.search.Query()
+	m.search.Deactivate()
+}
+
 func (m *Model) handleTabChange() tea.Cmd {
 	// Search tab shows empty list until command is executed
 	if m.currentTab == SearchTabIndex {
@@ -585,17 +635,26 @@ func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
 		// Determine namespace and resource name from the selected row
 		namespace := m.currentNamespace
 		resourceName := selected[0]
+		namespaceFromColumn := false
 
 		// Check if there's a NAMESPACE column (for -A commands)
 		if m.resources != nil {
 			namespaceIdx := m.resources.GetColumnIndex("NAMESPACE")
 			if namespaceIdx >= 0 && namespaceIdx < len(selected) {
 				namespace = selected[namespaceIdx]
+				namespaceFromColumn = true
 			}
 			// NAME column might be after NAMESPACE
 			nameIdx := m.resources.GetColumnIndex("NAME")
 			if nameIdx >= 0 && nameIdx < len(selected) {
 				resourceName = selected[nameIdx]
+			}
+		}
+
+		// No NAMESPACE column: fall back to the namespace in the tab command
+		if !namespaceFromColumn {
+			if cmdNs := getNamespaceFromCommand(m.getCurrentTabCommand()); cmdNs != "" {
+				namespace = cmdNs
 			}
 		}
 
@@ -651,13 +710,23 @@ func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
 		}
 	}
 
+	namespaceExtracted := false
 	for _, item := range items {
 		if len(item) > nameIdx {
 			names = append(names, item[nameIdx])
 		}
-		// Use namespace from first item if NAMESPACE column exists
-		if namespaceIdx >= 0 && namespaceIdx < len(item) && namespace == m.currentNamespace {
+		// Use namespace from the first item only when a NAMESPACE column is present
+		if !namespaceExtracted && namespaceIdx >= 0 && namespaceIdx < len(item) {
 			namespace = item[namespaceIdx]
+			namespaceExtracted = true
+		}
+	}
+
+	// If no NAMESPACE column in the data, fall back to the namespace specified
+	// in the current tab command (e.g. "get pods -n rhwa" → "rhwa")
+	if !namespaceExtracted {
+		if cmdNs := getNamespaceFromCommand(m.getCurrentTabCommand()); cmdNs != "" {
+			namespace = cmdNs
 		}
 	}
 
@@ -721,8 +790,16 @@ func (m *Model) viewLogs(follow bool) tea.Cmd {
 			return ErrorMsg{Err: err}
 		}
 
-		// If multiple containers, we'd need a selector
-		// For now, just use the first container or no specific container
+		// If multiple containers, show a selector dialog
+		if len(containers) > 1 {
+			return ContainersLoadedMsg{
+				PodName:    podName,
+				Namespace:  namespace,
+				Containers: containers,
+				Follow:     follow,
+			}
+		}
+
 		container := ""
 		if len(containers) == 1 {
 			container = containers[0]
@@ -937,6 +1014,9 @@ func (m *Model) handleSelectorResult() tea.Cmd {
 	case "container-logs":
 		// Use selected container for logs
 		return m.viewLogsWithContainer(selected, false)
+	case "container-logs-follow":
+		// Use selected container for follow logs
+		return m.viewLogsWithContainer(selected, true)
 	case "container-exec":
 		// Use selected container for exec
 		return m.execWithContainer(selected)
