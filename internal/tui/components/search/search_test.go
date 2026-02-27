@@ -129,6 +129,94 @@ func TestSearchActivateDeactivate(t *testing.T) {
 	}
 }
 
+func TestSearchIsFiltered(t *testing.T) {
+	s := New()
+
+	if s.IsFiltered() {
+		t.Error("Search should not be filtered initially")
+	}
+
+	s.Activate()
+	s.Filter("nginx")
+
+	if !s.IsFiltered() {
+		t.Error("Search should be filtered after Filter() with non-empty query")
+	}
+
+	// Deactivate clears the filter
+	s.Deactivate()
+	if s.IsFiltered() {
+		t.Error("Search should not be filtered after Deactivate()")
+	}
+}
+
+func TestSearchActivateClearsFilter(t *testing.T) {
+	s := New()
+
+	// Simulate confirmed filter state (Enter pressed)
+	s.Activate()
+	s.Filter("nginx")
+	s.active = false // confirmed
+
+	if !s.IsFiltered() {
+		t.Error("Should be filtered in confirmed state")
+	}
+
+	// Re-activating search should clear the filter
+	s.Activate()
+	if s.IsFiltered() {
+		t.Error("Activate() should clear the filter query")
+	}
+}
+
+func TestSetItemsPreservesConfirmedFilter(t *testing.T) {
+	s := New()
+	rows := [][]string{
+		{"nginx-abc", "Running"},
+		{"redis-xyz", "Pending"},
+		{"nginx-def", "Running"},
+	}
+
+	s.SetItems(rows)
+	s.Activate()
+	s.Filter("nginx")
+	s.active = false // confirm filter (simulate Enter)
+
+	// New resource data arrives
+	newRows := [][]string{
+		{"nginx-new", "Running"},
+		{"redis-new", "Pending"},
+		{"nginx-old", "Terminating"},
+	}
+	s.SetItems(newRows)
+
+	// Filter should still be applied with new data
+	filtered := s.FilteredItems()
+	if len(filtered) != 2 {
+		t.Errorf("SetItems with confirmed filter should re-apply filter, got %d rows, want 2", len(filtered))
+	}
+}
+
+func TestSearchViewFilteredButInactive(t *testing.T) {
+	s := New()
+	rows := [][]string{
+		{"nginx-abc", "Running"},
+		{"redis-xyz", "Pending"},
+	}
+
+	s.SetItems(rows)
+	s.Activate()
+	s.Filter("nginx")
+
+	// Simulate Enter: deactivate typing but keep filter
+	s.active = false
+
+	view := s.View()
+	if view == "" {
+		t.Error("View() should not be empty when filter is applied (even if not in active typing mode)")
+	}
+}
+
 func TestSearchSetItems(t *testing.T) {
 	s := New()
 	rows := [][]string{
