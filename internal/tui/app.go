@@ -35,6 +35,24 @@ const (
 // SearchTabIndex is the index of the special Search tab (always first)
 const SearchTabIndex = 0
 
+// getNamespaceFromCommand extracts the explicit namespace from a kubectl command string.
+// Returns "" if -A/--all-namespaces is used or no namespace flag is present.
+func getNamespaceFromCommand(command string) string {
+	parts := strings.Fields(command)
+	for i, part := range parts {
+		if part == "-A" || part == "--all-namespaces" {
+			return ""
+		}
+		if (part == "-n" || part == "--namespace") && i+1 < len(parts) {
+			return parts[i+1]
+		}
+		if strings.HasPrefix(part, "--namespace=") {
+			return strings.TrimPrefix(part, "--namespace=")
+		}
+	}
+	return ""
+}
+
 // getResourceTypeFromCommand extracts the resource type from a kubectl command string
 // e.g., "get pods -A" returns "pods", "get deployments -n default" returns "deployments"
 func getResourceTypeFromCommand(command string) string {
@@ -672,6 +690,14 @@ func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
 		if !namespaceExtracted && namespaceIdx >= 0 && namespaceIdx < len(item) {
 			namespace = item[namespaceIdx]
 			namespaceExtracted = true
+		}
+	}
+
+	// If no NAMESPACE column in the data, fall back to the namespace specified
+	// in the current tab command (e.g. "get pods -n rhwa" → "rhwa")
+	if !namespaceExtracted {
+		if cmdNs := getNamespaceFromCommand(m.getCurrentTabCommand()); cmdNs != "" {
+			namespace = cmdNs
 		}
 	}
 
