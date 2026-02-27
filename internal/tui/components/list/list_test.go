@@ -222,3 +222,203 @@ func TestString(t *testing.T) {
 		t.Errorf("String() = %q, should contain 'cursor=0'", s)
 	}
 }
+
+// Multi-select tests
+
+func TestToggleSelect(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+
+	// Initially nothing selected
+	if list.SelectedCount() != 0 {
+		t.Errorf("Initial SelectedCount() = %d, want 0", list.SelectedCount())
+	}
+
+	// Toggle select first item
+	list.ToggleSelect()
+	if !list.IsSelected(0) {
+		t.Error("Item 0 should be selected after ToggleSelect")
+	}
+	if list.SelectedCount() != 1 {
+		t.Errorf("SelectedCount() after first toggle = %d, want 1", list.SelectedCount())
+	}
+
+	// Toggle same item again should deselect
+	list.ToggleSelect()
+	if list.IsSelected(0) {
+		t.Error("Item 0 should be deselected after second ToggleSelect")
+	}
+	if list.SelectedCount() != 0 {
+		t.Errorf("SelectedCount() after deselect = %d, want 0", list.SelectedCount())
+	}
+}
+
+func TestToggleSelectMultiple(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+
+	// Select first item
+	list.ToggleSelect()
+
+	// Move down and select second item
+	list.MoveDown()
+	list.ToggleSelect()
+
+	if list.SelectedCount() != 2 {
+		t.Errorf("SelectedCount() = %d, want 2", list.SelectedCount())
+	}
+
+	if !list.IsSelected(0) {
+		t.Error("Item 0 should be selected")
+	}
+
+	if !list.IsSelected(1) {
+		t.Error("Item 1 should be selected")
+	}
+
+	if list.IsSelected(2) {
+		t.Error("Item 2 should not be selected")
+	}
+}
+
+func TestSelectAll(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+
+	list.SelectAll()
+
+	if list.SelectedCount() != 3 {
+		t.Errorf("SelectedCount() after SelectAll = %d, want 3", list.SelectedCount())
+	}
+
+	for i := 0; i < 3; i++ {
+		if !list.IsSelected(i) {
+			t.Errorf("Item %d should be selected after SelectAll", i)
+		}
+	}
+}
+
+func TestDeselectAll(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+
+	list.SelectAll()
+	list.DeselectAll()
+
+	if list.SelectedCount() != 0 {
+		t.Errorf("SelectedCount() after DeselectAll = %d, want 0", list.SelectedCount())
+	}
+
+	for i := 0; i < 3; i++ {
+		if list.IsSelected(i) {
+			t.Errorf("Item %d should not be selected after DeselectAll", i)
+		}
+	}
+}
+
+func TestSelectedItems(t *testing.T) {
+	rows := [][]string{
+		{"pod-1", "Running"},
+		{"pod-2", "Pending"},
+		{"pod-3", "Failed"},
+	}
+	list := New([]string{"NAME", "STATUS"}, rows)
+
+	// With no selections, should return current item
+	items := list.SelectedItems()
+	if len(items) != 1 {
+		t.Errorf("SelectedItems() with no selection = %d items, want 1", len(items))
+	}
+	if items[0][0] != "pod-1" {
+		t.Errorf("SelectedItems()[0][0] = %q, want %q", items[0][0], "pod-1")
+	}
+
+	// Select specific items
+	list.ToggleSelect() // select pod-1
+	list.MoveDown()
+	list.MoveDown()
+	list.ToggleSelect() // select pod-3
+
+	items = list.SelectedItems()
+	if len(items) != 2 {
+		t.Errorf("SelectedItems() with 2 selections = %d items, want 2", len(items))
+	}
+
+	// Items should be in order (0, 2)
+	if items[0][0] != "pod-1" {
+		t.Errorf("SelectedItems()[0][0] = %q, want %q", items[0][0], "pod-1")
+	}
+	if items[1][0] != "pod-3" {
+		t.Errorf("SelectedItems()[1][0] = %q, want %q", items[1][0], "pod-3")
+	}
+}
+
+func TestSelectedItemsEmpty(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{})
+
+	items := list.SelectedItems()
+	if items != nil {
+		t.Errorf("SelectedItems() on empty list = %v, want nil", items)
+	}
+}
+
+func TestIsSelected(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+
+	// Initially none selected
+	for i := 0; i < 3; i++ {
+		if list.IsSelected(i) {
+			t.Errorf("IsSelected(%d) = true, want false initially", i)
+		}
+	}
+
+	// Select item 1
+	list.MoveDown()
+	list.ToggleSelect()
+
+	if list.IsSelected(0) {
+		t.Error("IsSelected(0) = true, want false")
+	}
+	if !list.IsSelected(1) {
+		t.Error("IsSelected(1) = false, want true")
+	}
+	if list.IsSelected(2) {
+		t.Error("IsSelected(2) = true, want false")
+	}
+}
+
+func TestViewContainsSelectionIndicator(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"pod-1"}, {"pod-2"}})
+	list.SetSize(80, 10)
+
+	// Select first item
+	list.ToggleSelect()
+	view := list.View()
+
+	// Should show selection indicator
+	if !strings.Contains(view, "*") {
+		t.Error("View should contain '*' selection indicator for marked item")
+	}
+}
+
+func TestSetItemsClearsSelection(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}})
+
+	list.SelectAll()
+	if list.SelectedCount() != 2 {
+		t.Errorf("SelectedCount() after SelectAll = %d, want 2", list.SelectedCount())
+	}
+
+	// SetItems should clear selections
+	list.SetItems([]string{"NAME"}, [][]string{{"x"}, {"y"}, {"z"}})
+
+	if list.SelectedCount() != 0 {
+		t.Errorf("SelectedCount() after SetItems = %d, want 0", list.SelectedCount())
+	}
+}
+
+func TestStringContainsSelectedCount(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}})
+	list.SelectAll()
+
+	s := list.String()
+	if !strings.Contains(s, "selected=2") {
+		t.Errorf("String() = %q, should contain 'selected=2'", s)
+	}
+}

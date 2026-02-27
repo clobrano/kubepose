@@ -21,6 +21,11 @@ func NewKubectl(binaryPath string) *Kubectl {
 	}
 }
 
+// BinaryPath returns the path to the kubectl binary
+func (k *Kubectl) BinaryPath() string {
+	return k.binaryPath
+}
+
 // Execute runs a kubectl command with the given arguments and returns stdout, stderr, and error
 func (k *Kubectl) Execute(args ...string) (string, string, error) {
 	cmd := exec.Command(k.binaryPath, args...)

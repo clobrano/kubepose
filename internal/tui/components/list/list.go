@@ -9,14 +9,15 @@ import (
 
 // Model represents the resource list component
 type Model struct {
-	headers        []string
-	rows           [][]string
-	cursor         int
-	viewportOffset int
-	width          int
-	height         int
-	columnWidths   []int
-	styles         *Styles
+	headers         []string
+	rows            [][]string
+	cursor          int
+	viewportOffset  int
+	width           int
+	height          int
+	columnWidths    []int
+	selectedIndices map[int]bool
+	styles          *Styles
 }
 
 // Styles defines the styles for the list component
@@ -24,6 +25,8 @@ type Styles struct {
 	Header       lipgloss.Style
 	Item         lipgloss.Style
 	Selected     lipgloss.Style
+	Marked       lipgloss.Style
+	MarkedCursor lipgloss.Style
 	Cursor       lipgloss.Style
 	Empty        lipgloss.Style
 }
@@ -41,6 +44,12 @@ func DefaultStyles() *Styles {
 			Background(lipgloss.Color("238")).
 			Foreground(lipgloss.Color("39")).
 			Bold(true),
+		Marked: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("212")),
+		MarkedCursor: lipgloss.NewStyle().
+			Background(lipgloss.Color("238")).
+			Foreground(lipgloss.Color("212")).
+			Bold(true),
 		Cursor: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).
 			Bold(true),
@@ -53,7 +62,8 @@ func DefaultStyles() *Styles {
 // New creates a new list component
 func New(headers []string, rows [][]string) *Model {
 	m := &Model{
-		styles: DefaultStyles(),
+		styles:          DefaultStyles(),
+		selectedIndices: make(map[int]bool),
 	}
 	m.SetItems(headers, rows)
 	return m
@@ -65,6 +75,7 @@ func (m *Model) SetItems(headers []string, rows [][]string) {
 	m.rows = rows
 	m.cursor = 0
 	m.viewportOffset = 0
+	m.selectedIndices = make(map[int]bool)
 	m.calculateColumnWidths()
 }
 
@@ -184,6 +195,58 @@ func (m *Model) Headers() []string {
 	return m.headers
 }
 
+// ToggleSelect toggles selection of the current item
+func (m *Model) ToggleSelect() {
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		if m.selectedIndices[m.cursor] {
+			delete(m.selectedIndices, m.cursor)
+		} else {
+			m.selectedIndices[m.cursor] = true
+		}
+	}
+}
+
+// SelectAll selects all items
+func (m *Model) SelectAll() {
+	for i := range m.rows {
+		m.selectedIndices[i] = true
+	}
+}
+
+// DeselectAll deselects all items
+func (m *Model) DeselectAll() {
+	m.selectedIndices = make(map[int]bool)
+}
+
+// SelectedItems returns all selected rows (or current row if none selected)
+func (m *Model) SelectedItems() [][]string {
+	if len(m.selectedIndices) == 0 {
+		// No selections, return current item
+		if item := m.SelectedItem(); item != nil {
+			return [][]string{item}
+		}
+		return nil
+	}
+
+	var items [][]string
+	for i := 0; i < len(m.rows); i++ {
+		if m.selectedIndices[i] {
+			items = append(items, m.rows[i])
+		}
+	}
+	return items
+}
+
+// SelectedCount returns the number of selected items
+func (m *Model) SelectedCount() int {
+	return len(m.selectedIndices)
+}
+
+// IsSelected returns whether the given index is selected
+func (m *Model) IsSelected(index int) bool {
+	return m.selectedIndices[index]
+}
+
 // View renders the list
 func (m *Model) View() string {
 	if len(m.headers) == 0 {
@@ -227,12 +290,21 @@ func (m *Model) View() string {
 func (m *Model) renderRow(cells []string, rowIndex int) string {
 	var parts []string
 
-	// Add cursor indicator
-	cursorStr := "  "
-	if rowIndex == m.cursor && rowIndex >= 0 {
-		cursorStr = m.styles.Cursor.Render("> ")
+	// Add selection and cursor indicators
+	var indicator string
+	isMarked := m.selectedIndices[rowIndex]
+	isCursor := rowIndex == m.cursor && rowIndex >= 0
+
+	if isCursor && isMarked {
+		indicator = m.styles.Cursor.Render(">*")
+	} else if isCursor {
+		indicator = m.styles.Cursor.Render("> ")
+	} else if isMarked {
+		indicator = m.styles.Marked.Render(" *")
+	} else {
+		indicator = "  "
 	}
-	parts = append(parts, cursorStr)
+	parts = append(parts, indicator)
 
 	// Render each cell
 	for i, cell := range cells {
@@ -258,9 +330,15 @@ func (m *Model) renderRow(cells []string, rowIndex int) string {
 	if rowIndex == -1 {
 		// Header row
 		return m.styles.Header.Width(m.width).Render(content)
-	} else if rowIndex == m.cursor {
-		// Selected row
+	} else if isCursor && isMarked {
+		// Cursor on marked row
+		return m.styles.MarkedCursor.Width(m.width).Render(content)
+	} else if isCursor {
+		// Cursor row
 		return m.styles.Selected.Width(m.width).Render(content)
+	} else if isMarked {
+		// Marked row
+		return m.styles.Marked.Render(content)
 	}
 
 	return m.styles.Item.Render(content)
@@ -268,5 +346,5 @@ func (m *Model) renderRow(cells []string, rowIndex int) string {
 
 // String implements fmt.Stringer
 func (m *Model) String() string {
-	return fmt.Sprintf("List{rows=%d, cursor=%d}", len(m.rows), m.cursor)
+	return fmt.Sprintf("List{rows=%d, cursor=%d, selected=%d}", len(m.rows), m.cursor, len(m.selectedIndices))
 }

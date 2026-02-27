@@ -35,3 +35,31 @@ type DetailLoadedMsg struct {
 	Content      string
 	Format       int // 0=Table, 1=YAML, 2=JSON
 }
+
+// DescribeLoadedMsg is sent when describe output is loaded
+type DescribeLoadedMsg struct {
+	ResourceNames []string
+	Content       string
+}
+
+// ContainersLoadedMsg is sent when a pod's containers are retrieved
+type ContainersLoadedMsg struct {
+	PodName    string
+	Namespace  string
+	Containers []string
+	Follow     bool // true if this is for follow mode logs
+}
+
+// LogsLoadedMsg is sent when log output is loaded
+type LogsLoadedMsg struct {
+	PodName   string
+	Container string
+	Content   string
+}
+
+// ExecRequestMsg is sent to request exec into a container
+type ExecRequestMsg struct {
+	PodName   string
+	Namespace string
+	Container string
+}

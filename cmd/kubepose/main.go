@@ -10,7 +10,19 @@ import (
 	"github.com/clobrano/kubepose/internal/tui"
 )
 
+// Version information set by ldflags
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	// Check for version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("kubepose %s (commit: %s, built: %s)\n", version, commit, date)
+		os.Exit(0)
+	}
 	// Ensure config exists (create default if needed)
 	configPath, err := config.EnsureConfigExists()
 	if err != nil {
