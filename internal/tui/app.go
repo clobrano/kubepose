@@ -240,7 +240,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// If search is active, forward messages to search component
+	// If search is active (typing mode), forward messages to search component
 	if m.search.IsActive() {
 		var cmd tea.Cmd
 		m.search, cmd = m.search.Update(msg)
@@ -251,8 +251,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.SetItems(m.resources.Headers, filtered)
 		}
 
-		// Check if search was deactivated (Esc pressed)
-		if !m.search.IsActive() && m.resources != nil {
+		// Check if search was fully cleared (Esc pressed, no filter remaining)
+		if !m.search.IsActive() && !m.search.IsFiltered() && m.resources != nil {
 			m.list.SetItems(m.resources.Headers, m.resources.Rows)
 		}
 
@@ -264,6 +264,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			// Clear an active filter (confirmed via Enter)
+			if m.search.IsFiltered() {
+				m.search.Deactivate()
+				if m.resources != nil {
+					m.list.SetItems(m.resources.Headers, m.resources.Rows)
+				}
+			}
+			return m, nil
 		case "/":
 			// Activate search
 			if m.resources != nil {
@@ -355,9 +364,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.header.SetWidth(msg.Width)
 		m.tabs.SetWidth(msg.Width)
 		m.search.SetWidth(msg.Width)
-		// List height = total height - header (1) - tabs (1) - search (1 if active) - footer area (3)
+		// List height = total height - header (1) - tabs (1) - search (1 if active or filtered) - footer area (3)
 		listHeight := msg.Height - 5
-		if m.search.IsActive() {
+		if m.search.IsActive() || m.search.IsFiltered() {
 			listHeight--
 		}
 		if listHeight < 3 {
@@ -375,7 +384,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resources = msg.Data
 		m.lastError = nil
 		if msg.Data != nil {
-			m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
+			if m.search.IsFiltered() {
+				// Re-apply the active filter to the new data
+				m.search.SetItems(msg.Data.Rows)
+				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
+			} else {
+				m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
+			}
 		}
 
 	case ErrorMsg:
@@ -450,8 +465,8 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 	}
 
-	// Search bar (if active)
-	if m.search.IsActive() {
+	// Search bar (if active or filter confirmed)
+	if m.search.IsActive() || m.search.IsFiltered() {
 		b.WriteString(m.search.View())
 		b.WriteString("\n")
 	}
@@ -470,6 +485,8 @@ func (m *Model) View() string {
 	b.WriteString("\n\n")
 	if m.search.IsActive() {
 		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
+	} else if m.search.IsFiltered() {
+		b.WriteString("[Esc] clear filter  [/] modify filter  [d]escribe [L]ogs [D]elete [e]dit [x]exec")
 	} else if m.currentTab == SearchTabIndex {
 		b.WriteString("[Enter] enter command  [/]filter results  [r]efresh  [q]uit")
 	} else {

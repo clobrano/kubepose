@@ -10,6 +10,7 @@ import (
 type Model struct {
 	input         textinput.Model
 	active        bool
+	query         string
 	originalRows  [][]string
 	filteredRows  [][]string
 	styles        *Styles
@@ -57,17 +58,23 @@ func (m *Model) Activate() {
 	m.filteredRows = m.originalRows
 }
 
-// Deactivate disables search mode
+// Deactivate disables search mode and clears the filter
 func (m *Model) Deactivate() {
 	m.active = false
+	m.query = ""
 	m.input.Blur()
 	m.input.SetValue("")
 	m.filteredRows = m.originalRows
 }
 
-// IsActive returns whether search mode is active
+// IsActive returns whether search mode is active (typing mode)
 func (m *Model) IsActive() bool {
 	return m.active
+}
+
+// IsFiltered returns true when a filter query is applied (even after Enter confirms it)
+func (m *Model) IsFiltered() bool {
+	return m.query != ""
 }
 
 // SetItems sets the searchable items
@@ -82,6 +89,7 @@ func (m *Model) SetItems(rows [][]string) {
 
 // Filter filters items based on the current query
 func (m *Model) Filter(query string) {
+	m.query = query
 	m.filteredRows = FilterRows(query, m.originalRows)
 }
 
@@ -108,7 +116,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			m.Deactivate()
 			return m, nil
 		case "enter":
-			// Keep filter active but stop typing
+			// Confirm the filter: deactivate typing mode but keep the filter applied
+			m.active = false
 			m.input.Blur()
 			return m, nil
 		}
@@ -125,7 +134,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 
 // View renders the search input
 func (m *Model) View() string {
-	if !m.active {
+	if !m.active && !m.IsFiltered() {
 		return ""
 	}
 

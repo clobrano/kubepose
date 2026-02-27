@@ -129,6 +129,47 @@ func TestSearchActivateDeactivate(t *testing.T) {
 	}
 }
 
+func TestSearchIsFiltered(t *testing.T) {
+	s := New()
+
+	if s.IsFiltered() {
+		t.Error("Search should not be filtered initially")
+	}
+
+	s.Activate()
+	s.Filter("nginx")
+
+	if !s.IsFiltered() {
+		t.Error("Search should be filtered after Filter() with non-empty query")
+	}
+
+	// Deactivate clears the filter
+	s.Deactivate()
+	if s.IsFiltered() {
+		t.Error("Search should not be filtered after Deactivate()")
+	}
+}
+
+func TestSearchViewFilteredButInactive(t *testing.T) {
+	s := New()
+	rows := [][]string{
+		{"nginx-abc", "Running"},
+		{"redis-xyz", "Pending"},
+	}
+
+	s.SetItems(rows)
+	s.Activate()
+	s.Filter("nginx")
+
+	// Simulate Enter: deactivate typing but keep filter
+	s.active = false
+
+	view := s.View()
+	if view == "" {
+		t.Error("View() should not be empty when filter is applied (even if not in active typing mode)")
+	}
+}
+
 func TestSearchSetItems(t *testing.T) {
 	s := New()
 	rows := [][]string{
