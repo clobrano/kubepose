@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+// kubectlErrMsg returns stderr if non-empty, otherwise the error string
+func kubectlErrMsg(stderr string, err error) string {
+	if s := strings.TrimSpace(stderr); s != "" {
+		return s
+	}
+	return err.Error()
+}
+
 // LogsOptions contains options for the logs action
 type LogsOptions struct {
 	Follow    bool
@@ -28,9 +36,9 @@ func GetContainers(ctx *ActionContext) ([]string, error) {
 		args = append(args, "-n", ctx.Namespace)
 	}
 
-	stdout, _, err := ctx.Kubectl.Execute(args...)
+	stdout, stderr, err := ctx.Kubectl.Execute(args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s", kubectlErrMsg(stderr, err))
 	}
 
 	// Parse JSON to extract container names
@@ -82,9 +90,9 @@ func Logs(ctx *ActionContext, opts LogsOptions) (string, error) {
 		args = append(args, "--previous")
 	}
 
-	stdout, _, err := ctx.Kubectl.Execute(args...)
+	stdout, stderr, err := ctx.Kubectl.Execute(args...)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s", kubectlErrMsg(stderr, err))
 	}
 
 	return stdout, nil
@@ -121,9 +129,9 @@ func LogsWithPager(ctx *ActionContext, opts LogsOptions, pager string) error {
 	}
 
 	// Get logs output
-	stdout, _, err := ctx.Kubectl.Execute(args...)
+	stdout, stderr, err := ctx.Kubectl.Execute(args...)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s", kubectlErrMsg(stderr, err))
 	}
 
 	// Pipe to pager

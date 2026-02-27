@@ -663,13 +663,15 @@ func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
 		}
 	}
 
+	namespaceExtracted := false
 	for _, item := range items {
 		if len(item) > nameIdx {
 			names = append(names, item[nameIdx])
 		}
-		// Use namespace from first item if NAMESPACE column exists
-		if namespaceIdx >= 0 && namespaceIdx < len(item) && namespace == m.currentNamespace {
+		// Use namespace from the first item only when a NAMESPACE column is present
+		if !namespaceExtracted && namespaceIdx >= 0 && namespaceIdx < len(item) {
 			namespace = item[namespaceIdx]
+			namespaceExtracted = true
 		}
 	}
 
