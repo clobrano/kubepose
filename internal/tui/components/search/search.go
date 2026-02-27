@@ -145,6 +145,17 @@ func (m *Model) View() string {
 	return m.styles.Container.Render(prompt + input)
 }
 
+// RestoreFilter re-applies a previously saved filter query without entering
+// active (typing) mode. Used when switching back to a tab that had a filter.
+func (m *Model) RestoreFilter(query string) {
+	if query == "" {
+		return
+	}
+	m.query = query
+	m.input.SetValue(query)
+	m.filteredRows = FilterRows(query, m.originalRows)
+}
+
 // SetWidth sets the width for the search input
 func (m *Model) SetWidth(width int) {
 	m.input.Width = width - 10 // Account for prompt and padding

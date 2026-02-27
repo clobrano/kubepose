@@ -126,6 +126,9 @@ type Model struct {
 	searchInput   *dialog.InputModel
 	searchCommand string // Last executed search command
 
+	// Per-tab search state: saves the last confirmed filter for each tab index
+	tabSearchStates map[int]string
+
 	// Error state
 	lastError error
 }
@@ -144,16 +147,17 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	searchInput.WithValue("")
 
 	return &Model{
-		config:      cfg,
-		kubectl:     k,
-		viewState:   ViewList,
-		currentTab:  1, // Start on first configured tab, not Search
-		header:      header.New("", "", 0),
-		tabs:        tabs.New(tabNames, 1),
-		list:        list.New([]string{}, [][]string{}),
-		search:      search.New(),
-		detail:      detail.New("", "", detail.FormatTable),
-		searchInput: searchInput,
+		config:          cfg,
+		kubectl:         k,
+		viewState:       ViewList,
+		currentTab:      1, // Start on first configured tab, not Search
+		header:          header.New("", "", 0),
+		tabs:            tabs.New(tabNames, 1),
+		list:            list.New([]string{}, [][]string{}),
+		search:          search.New(),
+		detail:          detail.New("", "", detail.FormatTable),
+		searchInput:     searchInput,
+		tabSearchStates: make(map[int]string),
 	}
 }
 
@@ -286,6 +290,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clear an active filter (confirmed via Enter)
 			if m.search.IsFiltered() {
 				m.search.Deactivate()
+				delete(m.tabSearchStates, m.currentTab)
 				if m.resources != nil {
 					m.list.SetItems(m.resources.Headers, m.resources.Rows)
 				}
@@ -314,16 +319,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Show detail view (JSON format)
 			return m, m.loadResourceDetail(detail.FormatJSON)
 		case "tab", "right", "l":
+			m.saveCurrentTabSearch()
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
 		case "shift+tab", "left", "h":
+			m.saveCurrentTabSearch()
 			m.tabs.Previous()
 			m.currentTab = m.tabs.Active()
 			return m, m.handleTabChange()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
 			if idx < m.tabs.Count() {
+				m.saveCurrentTabSearch()
 				m.tabs.SetActive(idx)
 				m.currentTab = idx
 				return m, m.handleTabChange()
@@ -403,8 +411,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastError = nil
 		if msg.Data != nil {
 			if m.search.IsFiltered() {
-				// Re-apply the active filter to the new data
+				// Refresh on same tab: re-apply the active filter to the new data
 				m.search.SetItems(msg.Data.Rows)
+				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
+			} else if savedQuery := m.tabSearchStates[m.currentTab]; savedQuery != "" {
+				// Returning to a tab that had a saved filter: restore it
+				m.search.SetItems(msg.Data.Rows)
+				m.search.RestoreFilter(savedQuery)
 				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
 			} else {
 				m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
@@ -547,6 +560,13 @@ func (m *Model) loadContext() tea.Cmd {
 }
 
 // handleTabChange handles switching to a new tab
+// saveCurrentTabSearch saves the active search filter for the current tab and
+// deactivates the search component so the next tab starts clean.
+func (m *Model) saveCurrentTabSearch() {
+	m.tabSearchStates[m.currentTab] = m.search.Query()
+	m.search.Deactivate()
+}
+
 func (m *Model) handleTabChange() tea.Cmd {
 	// Search tab shows empty list until command is executed
 	if m.currentTab == SearchTabIndex {
