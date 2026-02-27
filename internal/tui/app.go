@@ -416,6 +416,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetContent(title+" (logs)", msg.Content, detail.FormatTable)
 		m.detail.SetSize(m.width, m.height-2)
 
+	case ContainersLoadedMsg:
+		m.pendingNames = []string{msg.PodName}
+		m.pendingNs = msg.Namespace
+		if msg.Follow {
+			m.pendingAction = "container-logs-follow"
+		} else {
+			m.pendingAction = "container-logs"
+		}
+		m.selector = dialog.NewSelector("Select Container", msg.Containers)
+		m.selector.SetSize(m.width, m.height)
+		m.viewState = ViewSelector
+
 	case RefreshMsg:
 		return m, tea.Batch(m.loadContext(), m.loadResources())
 	}
@@ -721,8 +733,16 @@ func (m *Model) viewLogs(follow bool) tea.Cmd {
 			return ErrorMsg{Err: err}
 		}
 
-		// If multiple containers, we'd need a selector
-		// For now, just use the first container or no specific container
+		// If multiple containers, show a selector dialog
+		if len(containers) > 1 {
+			return ContainersLoadedMsg{
+				PodName:    podName,
+				Namespace:  namespace,
+				Containers: containers,
+				Follow:     follow,
+			}
+		}
+
 		container := ""
 		if len(containers) == 1 {
 			container = containers[0]
@@ -937,6 +957,9 @@ func (m *Model) handleSelectorResult() tea.Cmd {
 	case "container-logs":
 		// Use selected container for logs
 		return m.viewLogsWithContainer(selected, false)
+	case "container-logs-follow":
+		// Use selected container for follow logs
+		return m.viewLogsWithContainer(selected, true)
 	case "container-exec":
 		// Use selected container for exec
 		return m.execWithContainer(selected)
