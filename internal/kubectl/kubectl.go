@@ -38,6 +38,54 @@ func (k *Kubectl) Execute(args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
+// ExecuteRaw runs a kubectl command from a raw command string and returns the output
+func (k *Kubectl) ExecuteRaw(command string) (string, error) {
+	args := parseCommandArgs(command)
+	stdout, stderr, err := k.Execute(args...)
+	if err != nil {
+		return "", &KubectlError{Stderr: stderr, Err: err}
+	}
+	return stdout, nil
+}
+
+// parseCommandArgs splits a command string into arguments, handling quoted strings
+func parseCommandArgs(command string) []string {
+	var args []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+
+		if inQuote {
+			if ch == quoteChar {
+				inQuote = false
+			} else {
+				current.WriteByte(ch)
+			}
+		} else {
+			if ch == '"' || ch == '\'' {
+				inQuote = true
+				quoteChar = ch
+			} else if ch == ' ' || ch == '\t' {
+				if current.Len() > 0 {
+					args = append(args, current.String())
+					current.Reset()
+				}
+			} else {
+				current.WriteByte(ch)
+			}
+		}
+	}
+
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+
+	return args
+}
+
 // GetResources fetches resources of the specified type with optional filters
 func (k *Kubectl) GetResources(resource, namespace string, allNamespaces bool, labelSelector, fieldSelector string) (string, error) {
 	args := []string{"get", resource}

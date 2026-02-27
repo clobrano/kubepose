@@ -29,14 +29,8 @@ type Config struct {
 
 // TabConfig represents the configuration for a single tab
 type TabConfig struct {
-	Name          string   `yaml:"name"`
-	Resource      string   `yaml:"resource"`
-	Namespace     string   `yaml:"namespace"`
-	AllNamespaces bool     `yaml:"all_namespaces"`
-	LabelSelector string   `yaml:"label_selector"`
-	FieldSelector string   `yaml:"field_selector"`
-	Sort          string   `yaml:"sort"`
-	Columns       []string `yaml:"columns"`
+	Name    string `yaml:"name"`
+	Command string `yaml:"command"`
 }
 
 // CustomCommand represents a user-defined custom command
@@ -135,8 +129,8 @@ func (c *Config) Validate() error {
 		if tab.Name == "" {
 			return fmt.Errorf("tab %d: name cannot be empty", i)
 		}
-		if tab.Resource == "" {
-			return fmt.Errorf("tab %d (%s): resource cannot be empty", i, tab.Name)
+		if tab.Command == "" {
+			return fmt.Errorf("tab %d (%s): command cannot be empty", i, tab.Name)
 		}
 	}
 

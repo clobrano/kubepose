@@ -5,7 +5,9 @@ A terminal UI for exploring and managing Kubernetes clusters. Browse resources, 
 ## Features
 
 - **Multi-tab resource browsing** - View Pods, Deployments, Services, and other resources in configurable tabs
-- **Fuzzy search** - Filter resources in real-time
+- **Search tab** - Execute any kubectl command interactively from the first tab
+- **Command-based tabs** - Configure tabs with raw kubectl commands for maximum flexibility
+- **Fuzzy search** - Filter resources in real-time with intelligent matching
 - **Multiple output formats** - View resources as table, YAML, or JSON
 - **Resource actions** - Describe, logs, delete, edit, exec, port-forward, scale, and rollout restart
 - **Context & namespace switching** - Quickly switch between clusters and namespaces
@@ -39,30 +41,117 @@ kubepose
 
 On first run, a default configuration file is created at `~/.config/kubepose/config.yaml`.
 
-## Keyboard Shortcuts
+## Search Tab
+
+The first tab is always the **Search** tab, which lets you run any kubectl command interactively.
+
+1. Navigate to the Search tab (press `1` or use `Tab`/`Shift+Tab`)
+2. Press `Enter` to open the command input
+3. Type a kubectl command (e.g., `get nodes -o wide`, `get pods -l app=nginx`)
+4. Press `Enter` to execute and view results
+5. Use `/` to filter the results with fuzzy search
+
+The Search tab is useful for ad-hoc queries without needing to configure a new tab.
+
+## Fuzzy Filter
+
+Press `/` to activate fuzzy filter mode. The filter uses fuzzy matching to filter resources in real-time as you type.
+
+### How fuzzy filter works
+
+- **Case-insensitive** - `nginx` matches `NGINX`, `Nginx`, etc.
+- **Non-contiguous matching** - Characters must appear in order but don't need to be adjacent. `ngx` matches `nginx`, `nxabc` matches `nginx-abc123`
+- **Searches all columns** - Matches against name, status, namespace, or any visible column
+- **Smart ranking** - Results are sorted by match quality:
+  - Exact matches rank highest
+  - Matches at the start of words rank higher
+  - Consecutive character matches rank higher
+  - Shorter matches rank higher than longer ones
+
+### Filter controls
 
 | Key | Action |
 |-----|--------|
-| `q` | Quit |
-| `/` | Search/filter resources |
-| `Enter` | View resource details (table) |
-| `Y` | View as YAML |
-| `J` | View as JSON |
-| `d` | Describe resource |
-| `l` / `L` | Logs / Follow logs |
-| `D` | Delete resource |
-| `e` | Edit resource |
-| `x` | Exec into pod |
-| `R` | Rollout restart |
-| `c` | Switch context |
-| `n` | Switch namespace |
+| `/` | Activate fuzzy filter |
+| `Enter` | Confirm filter and return to list |
+| `Esc` | Cancel filter and show all resources |
+
+### Examples
+
+| Query | Matches |
+|-------|---------|
+| `nginx` | `nginx-deployment`, `my-nginx-pod` |
+| `ngx` | `nginx`, `nginx-abc123` |
+| `run` | pods with status `Running` |
+| `def` | resources in `default` namespace |
+
+## Keyboard Shortcuts
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `j` / `Down` | Move cursor down |
+| `k` / `Up` | Move cursor up |
+| `g` | Go to first item |
+| `G` | Go to last item |
 | `Tab` | Next tab |
 | `Shift+Tab` | Previous tab |
-| `1-9` | Jump to tab |
-| `j/k` | Move down/up |
-| `Space` | Toggle selection |
-| `r` | Refresh |
-| `?` | Help |
+| `1-9` | Jump to tab by number |
+
+### Views
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View resource details (table format) |
+| `Y` | View as YAML |
+| `J` | View as JSON |
+| `Esc` | Return to list view |
+
+### Actions
+
+| Key | Action |
+|-----|--------|
+| `d` | Describe resource |
+| `l` | View logs (pods only) |
+| `L` | Follow logs (pods only) |
+| `D` | Delete resource (with confirmation) |
+| `e` | Edit resource |
+| `x` | Exec into pod |
+| `R` | Rollout restart (deployments) |
+
+### Selection
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle selection on current item |
+| `a` | Select all |
+| `A` | Deselect all |
+
+### Other
+
+| Key | Action |
+|-----|--------|
+| `c` | Switch kubectl context |
+| `n` | Switch namespace |
+| `/` | Search/filter |
+| `r` | Refresh current view |
+| `?` | Show help |
+| `q` | Quit |
+
+## Detail View
+
+When viewing resource details (`Enter`, `Y`, or `J`), use these keys to navigate:
+
+| Key | Action |
+|-----|--------|
+| `j` / `Down` | Scroll down |
+| `k` / `Up` | Scroll up |
+| `d` | Scroll half page down |
+| `u` | Scroll half page up |
+| `g` | Go to top |
+| `G` | Go to bottom |
+| `Esc` / `q` | Return to list |
 
 ## Configuration
 
@@ -72,7 +161,7 @@ Edit `~/.config/kubepose/config.yaml` to customize:
 # Path to kubectl binary
 kubectl_bin: "kubectl"
 
-# Pager for long output
+# Pager for long output (used by some actions)
 pager: "less"
 
 # Custom keybindings
@@ -80,16 +169,39 @@ keybindings:
   quit: "q"
   describe: "d"
   logs: "l"
-  # ...
+  logs_follow: "L"
+  delete: "D"
+  edit: "e"
+  exec: "x"
+  yaml_view: "Y"
+  json_view: "J"
+  search: "/"
+  refresh: "r"
+  context: "c"
+  namespace: "n"
+  select: " "
+  select_all: "a"
+  deselect_all: "A"
+  rollout_restart: "R"
 
-# Configure tabs
+# Configure resource tabs (command-based)
+# Each tab runs a kubectl command (without the "kubectl" prefix)
 tabs:
   - name: "Pods"
-    resource: "pods"
+    command: "get pods -A"
+  - name: "Running"
+    command: "get pods -A --field-selector=status.phase=Running"
   - name: "Deployments"
-    resource: "deployments"
+    command: "get deployments -A"
   - name: "Services"
-    resource: "services"
+    command: "get services -A"
+  - name: "Nodes"
+    command: "get nodes -o wide"
+
+# Examples of tab commands:
+#   command: "get pods -n kube-system"           # Specific namespace
+#   command: "get pods -l app=nginx"             # Filter by label
+#   command: "get events --sort-by=.lastTimestamp"  # Sorted events
 ```
 
 ## Development
@@ -100,6 +212,9 @@ make build
 
 # Run tests
 make test
+
+# Run with race detector
+make build && ./kubepose
 
 # Install locally
 make install

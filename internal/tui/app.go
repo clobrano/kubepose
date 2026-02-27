@@ -29,7 +29,48 @@ const (
 	ViewSelector
 	ViewInput
 	ViewHelp
+	ViewSearchTab // Search tab command input mode
 )
+
+// SearchTabIndex is the index of the special Search tab (always first)
+const SearchTabIndex = 0
+
+// getResourceTypeFromCommand extracts the resource type from a kubectl command string
+// e.g., "get pods -A" returns "pods", "get deployments -n default" returns "deployments"
+func getResourceTypeFromCommand(command string) string {
+	parts := strings.Fields(command)
+	// Look for the resource type after "get" or similar commands
+	for i, part := range parts {
+		if part == "get" || part == "describe" || part == "delete" {
+			if i+1 < len(parts) {
+				// Return the next part as the resource type, ignoring flags
+				next := parts[i+1]
+				if !strings.HasPrefix(next, "-") {
+					return next
+				}
+			}
+		}
+	}
+	// If no recognized command pattern, return empty
+	return ""
+}
+
+// getCurrentTabCommand returns the command for the current tab
+func (m *Model) getCurrentTabCommand() string {
+	if m.currentTab == SearchTabIndex {
+		return m.searchCommand
+	}
+	configTabIndex := m.currentTab - 1
+	if configTabIndex < 0 || configTabIndex >= len(m.config.Tabs) {
+		return ""
+	}
+	return m.config.Tabs[configTabIndex].Command
+}
+
+// getCurrentResourceType returns the resource type for the current tab
+func (m *Model) getCurrentResourceType() string {
+	return getResourceTypeFromCommand(m.getCurrentTabCommand())
+}
 
 // Model is the main application model for the TUI
 type Model struct {
@@ -63,27 +104,38 @@ type Model struct {
 	resources        *kubectl.TableData
 	selectedIndex    int
 
+	// Search tab state
+	searchInput   *dialog.InputModel
+	searchCommand string // Last executed search command
+
 	// Error state
 	lastError error
 }
 
 // NewModel creates a new application model
 func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
-	// Extract tab names from config
-	tabNames := make([]string, len(cfg.Tabs))
+	// Extract tab names from config, prepending Search tab
+	tabNames := make([]string, len(cfg.Tabs)+1)
+	tabNames[0] = "Search"
 	for i, tab := range cfg.Tabs {
-		tabNames[i] = tab.Name
+		tabNames[i+1] = tab.Name
 	}
 
+	// Create search input for the Search tab
+	searchInput := dialog.NewInput("kubectl", "get pods -A")
+	searchInput.WithValue("")
+
 	return &Model{
-		config:    cfg,
-		kubectl:   k,
-		viewState: ViewList,
-		header:    header.New("", "", 0),
-		tabs:      tabs.New(tabNames, 0),
-		list:      list.New([]string{}, [][]string{}),
-		search:    search.New(),
-		detail:    detail.New("", "", detail.FormatTable),
+		config:      cfg,
+		kubectl:     k,
+		viewState:   ViewList,
+		currentTab:  1, // Start on first configured tab, not Search
+		header:      header.New("", "", 0),
+		tabs:        tabs.New(tabNames, 1),
+		list:        list.New([]string{}, [][]string{}),
+		search:      search.New(),
+		detail:      detail.New("", "", detail.FormatTable),
+		searchInput: searchInput,
 	}
 }
 
@@ -162,6 +214,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle Search tab input mode
+	if m.viewState == ViewSearchTab {
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+
+		switch m.searchInput.Result() {
+		case dialog.InputSubmitted:
+			m.viewState = ViewList
+			m.searchCommand = m.searchInput.Value()
+			m.searchInput.Reset()
+			return m, m.executeSearchCommand()
+		case dialog.InputCancelled:
+			m.viewState = ViewList
+			m.searchInput.Reset()
+		}
+
+		// Handle window resize in search input mode
+		if wmsg, ok := msg.(tea.WindowSizeMsg); ok {
+			m.width = wmsg.Width
+			m.height = wmsg.Height
+			m.searchInput.SetSize(wmsg.Width, wmsg.Height)
+		}
+
+		return m, cmd
+	}
+
 	// If search is active, forward messages to search component
 	if m.search.IsActive() {
 		var cmd tea.Cmd
@@ -194,6 +272,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.Activate()
 			return m, nil
 		case "enter":
+			// On Search tab, activate command input
+			if m.currentTab == SearchTabIndex {
+				m.viewState = ViewSearchTab
+				m.searchInput.SetSize(m.width, m.height)
+				return m, nil
+			}
 			// Show detail view (table format)
 			return m, m.loadResourceDetail(detail.FormatTable)
 		case "Y":
@@ -205,17 +289,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.tabs.Next()
 			m.currentTab = m.tabs.Active()
-			return m, m.loadResources()
+			return m, m.handleTabChange()
 		case "shift+tab":
 			m.tabs.Previous()
 			m.currentTab = m.tabs.Active()
-			return m, m.loadResources()
+			return m, m.handleTabChange()
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
 			if idx < m.tabs.Count() {
 				m.tabs.SetActive(idx)
 				m.currentTab = idx
-				return m, m.loadResources()
+				return m, m.handleTabChange()
 			}
 		case "j", "down":
 			m.list.MoveDown()
@@ -341,6 +425,11 @@ func (m *Model) View() string {
 		return m.selector.View()
 	}
 
+	// Search tab input mode
+	if m.viewState == ViewSearchTab {
+		return m.searchInput.View()
+	}
+
 	var b strings.Builder
 
 	// Header
@@ -350,6 +439,16 @@ func (m *Model) View() string {
 	// Tabs
 	b.WriteString(m.tabs.View())
 	b.WriteString("\n")
+
+	// Search tab: show command prompt info when on Search tab
+	if m.currentTab == SearchTabIndex {
+		if m.searchCommand != "" {
+			b.WriteString(fmt.Sprintf("kubectl %s", m.searchCommand))
+		} else {
+			b.WriteString("Press [Enter] to enter a kubectl command")
+		}
+		b.WriteString("\n")
+	}
 
 	// Search bar (if active)
 	if m.search.IsActive() {
@@ -371,6 +470,8 @@ func (m *Model) View() string {
 	b.WriteString("\n\n")
 	if m.search.IsActive() {
 		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
+	} else if m.currentTab == SearchTabIndex {
+		b.WriteString("[Enter] enter command  [/]filter results  [r]efresh  [q]uit")
 	} else {
 		b.WriteString("[d]escribe [l]ogs [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [/]search [r]efresh [?]help")
 	}
@@ -398,21 +499,50 @@ func (m *Model) loadContext() tea.Cmd {
 	}
 }
 
+// handleTabChange handles switching to a new tab
+func (m *Model) handleTabChange() tea.Cmd {
+	// Search tab shows empty list until command is executed
+	if m.currentTab == SearchTabIndex {
+		m.resources = &kubectl.TableData{}
+		m.list.SetItems([]string{}, [][]string{})
+		return nil
+	}
+	return m.loadResources()
+}
+
 // loadResources returns a command to load resources for the current tab
 func (m *Model) loadResources() tea.Cmd {
 	return func() tea.Msg {
-		if len(m.config.Tabs) == 0 {
+		// Search tab doesn't load automatically
+		if m.currentTab == SearchTabIndex {
 			return ResourcesLoadedMsg{Data: &kubectl.TableData{}}
 		}
 
-		tab := m.config.Tabs[m.currentTab]
-		output, err := m.kubectl.GetResources(
-			tab.Resource,
-			tab.Namespace,
-			tab.AllNamespaces,
-			tab.LabelSelector,
-			tab.FieldSelector,
-		)
+		// Config tabs are offset by 1 due to Search tab at index 0
+		configTabIndex := m.currentTab - 1
+		if configTabIndex < 0 || configTabIndex >= len(m.config.Tabs) {
+			return ResourcesLoadedMsg{Data: &kubectl.TableData{}}
+		}
+
+		tab := m.config.Tabs[configTabIndex]
+		output, err := m.kubectl.ExecuteRaw(tab.Command)
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+
+		data := kubectl.ParseTableOutput(output)
+		return ResourcesLoadedMsg{Data: data}
+	}
+}
+
+// executeSearchCommand executes the search tab command
+func (m *Model) executeSearchCommand() tea.Cmd {
+	return func() tea.Msg {
+		if m.searchCommand == "" {
+			return ResourcesLoadedMsg{Data: &kubectl.TableData{}}
+		}
+
+		output, err := m.kubectl.ExecuteRaw(m.searchCommand)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
@@ -430,19 +560,26 @@ func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
 			return ErrorMsg{Err: nil}
 		}
 
-		resourceName := selected[0]
-		tab := m.config.Tabs[m.currentTab]
+		resourceType := m.getCurrentResourceType()
+		if resourceType == "" {
+			return ErrorMsg{Err: nil}
+		}
 
-		// Determine namespace from resource or current namespace
+		// Determine namespace and resource name from the selected row
 		namespace := m.currentNamespace
-		if tab.AllNamespaces && len(selected) > 1 {
-			// For all-namespaces view, namespace is usually in the first column
+		resourceName := selected[0]
+
+		// Check if there's a NAMESPACE column (for -A commands)
+		if m.resources != nil {
 			namespaceIdx := m.resources.GetColumnIndex("NAMESPACE")
 			if namespaceIdx >= 0 && namespaceIdx < len(selected) {
 				namespace = selected[namespaceIdx]
 			}
-		} else if tab.Namespace != "" {
-			namespace = tab.Namespace
+			// NAME column might be after NAMESPACE
+			nameIdx := m.resources.GetColumnIndex("NAME")
+			if nameIdx >= 0 && nameIdx < len(selected) {
+				resourceName = selected[nameIdx]
+			}
 		}
 
 		var content string
@@ -450,12 +587,12 @@ func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
 
 		switch format {
 		case detail.FormatYAML:
-			content, err = m.kubectl.GetResourceYAML(tab.Resource, resourceName, namespace)
+			content, err = m.kubectl.GetResourceYAML(resourceType, resourceName, namespace)
 		case detail.FormatJSON:
-			content, err = m.kubectl.GetResourceJSON(tab.Resource, resourceName, namespace)
+			content, err = m.kubectl.GetResourceJSON(resourceType, resourceName, namespace)
 		default:
 			// Table format - use describe
-			content, _, err = m.kubectl.Execute("describe", tab.Resource, resourceName, "-n", namespace)
+			content, _, err = m.kubectl.Execute("describe", resourceType, resourceName, "-n", namespace)
 		}
 
 		if err != nil {
@@ -475,12 +612,7 @@ func (m *Model) loadResourceDetail(format detail.Format) tea.Cmd {
 
 // getSelectedResourceInfo returns resource names and namespace for selected items
 func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
-	tab := m.config.Tabs[m.currentTab]
 	namespace = m.currentNamespace
-
-	if tab.Namespace != "" {
-		namespace = tab.Namespace
-	}
 
 	// Get selected items (or current item if none selected)
 	items := m.list.SelectedItems()
@@ -492,7 +624,8 @@ func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
 	nameIdx := 0
 	namespaceIdx := -1
 
-	if tab.AllNamespaces && m.resources != nil {
+	if m.resources != nil {
+		// Check for NAMESPACE column (present in -A commands)
 		namespaceIdx = m.resources.GetColumnIndex("NAMESPACE")
 		// NAME column might be after NAMESPACE
 		nameColIdx := m.resources.GetColumnIndex("NAME")
@@ -505,7 +638,7 @@ func (m *Model) getSelectedResourceInfo() (names []string, namespace string) {
 		if len(item) > nameIdx {
 			names = append(names, item[nameIdx])
 		}
-		// Use namespace from first item if all-namespaces mode
+		// Use namespace from first item if NAMESPACE column exists
 		if namespaceIdx >= 0 && namespaceIdx < len(item) && namespace == m.currentNamespace {
 			namespace = item[namespaceIdx]
 		}
@@ -522,8 +655,12 @@ func (m *Model) describeResources() tea.Cmd {
 			return ErrorMsg{Err: nil}
 		}
 
-		tab := m.config.Tabs[m.currentTab]
-		ctx := actions.NewContext(m.kubectl, tab.Resource, names, namespace)
+		resourceType := m.getCurrentResourceType()
+		if resourceType == "" {
+			return ErrorMsg{Err: nil}
+		}
+
+		ctx := actions.NewContext(m.kubectl, resourceType, names, namespace)
 
 		content, err := actions.Describe(ctx)
 		if err != nil {
@@ -537,13 +674,18 @@ func (m *Model) describeResources() tea.Cmd {
 	}
 }
 
+// isPodResource returns true if the resource type is a pod
+func isPodResource(resourceType string) bool {
+	return resourceType == "pods" || resourceType == "pod" || resourceType == "po"
+}
+
 // viewLogs returns a command to view logs for the selected pod
 func (m *Model) viewLogs(follow bool) tea.Cmd {
 	return func() tea.Msg {
-		tab := m.config.Tabs[m.currentTab]
+		resourceType := m.getCurrentResourceType()
 
 		// Logs only work for pods
-		if tab.Resource != "pods" && tab.Resource != "pod" && tab.Resource != "po" {
+		if !isPodResource(resourceType) {
 			return ErrorMsg{Err: nil}
 		}
 
@@ -595,12 +737,16 @@ func (m *Model) confirmDelete() tea.Cmd {
 			return nil
 		}
 
-		tab := m.config.Tabs[m.currentTab]
+		resourceType := m.getCurrentResourceType()
+		if resourceType == "" {
+			return nil
+		}
+
 		var message string
 		if len(names) == 1 {
-			message = fmt.Sprintf("Delete %s/%s?\n\nThis action cannot be undone.", tab.Resource, names[0])
+			message = fmt.Sprintf("Delete %s/%s?\n\nThis action cannot be undone.", resourceType, names[0])
 		} else {
-			message = fmt.Sprintf("Delete %d %s resources?\n\nThis action cannot be undone.", len(names), tab.Resource)
+			message = fmt.Sprintf("Delete %d %s resources?\n\nThis action cannot be undone.", len(names), resourceType)
 		}
 
 		m.confirm = dialog.NewConfirm("Confirm Delete", message)
@@ -621,8 +767,12 @@ func (m *Model) executeDelete() tea.Cmd {
 			return nil
 		}
 
-		tab := m.config.Tabs[m.currentTab]
-		ctx := actions.NewContext(m.kubectl, tab.Resource, m.pendingNames, m.pendingNs)
+		resourceType := m.getCurrentResourceType()
+		if resourceType == "" {
+			return nil
+		}
+
+		ctx := actions.NewContext(m.kubectl, resourceType, m.pendingNames, m.pendingNs)
 
 		results, err := actions.Delete(ctx)
 		if err != nil {
@@ -656,11 +806,14 @@ func (m *Model) editResource() tea.Cmd {
 		return nil
 	}
 
-	tab := m.config.Tabs[m.currentTab]
+	resourceType := m.getCurrentResourceType()
+	if resourceType == "" {
+		return nil
+	}
 
 	// Return a command that suspends the TUI
 	return tea.ExecProcess(
-		makeKubectlEditCmd(m.kubectl.BinaryPath(), tab.Resource, names[0], namespace),
+		makeKubectlEditCmd(m.kubectl.BinaryPath(), resourceType, names[0], namespace),
 		func(err error) tea.Msg {
 			if err != nil {
 				return ErrorMsg{Err: err}
@@ -690,9 +843,9 @@ func (m *Model) execIntoPod() tea.Cmd {
 		return nil
 	}
 
-	tab := m.config.Tabs[m.currentTab]
+	resourceType := m.getCurrentResourceType()
 	// Exec only works for pods
-	if tab.Resource != "pods" && tab.Resource != "pod" && tab.Resource != "po" {
+	if !isPodResource(resourceType) {
 		return nil
 	}
 
@@ -730,8 +883,12 @@ func (m *Model) rolloutRestart() tea.Cmd {
 			return nil
 		}
 
-		tab := m.config.Tabs[m.currentTab]
-		ctx := actions.NewContext(m.kubectl, tab.Resource, names, namespace)
+		resourceType := m.getCurrentResourceType()
+		if resourceType == "" {
+			return nil
+		}
+
+		ctx := actions.NewContext(m.kubectl, resourceType, names, namespace)
 
 		output, err := actions.RolloutRestart(ctx)
 		if err != nil {

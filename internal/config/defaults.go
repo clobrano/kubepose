@@ -33,8 +33,16 @@ func DefaultConfig() *Config {
 		},
 		Tabs: []TabConfig{
 			{
-				Name:     "Pods",
-				Resource: "pods",
+				Name:    "Pods",
+				Command: "get pods -A",
+			},
+			{
+				Name:    "Deployments",
+				Command: "get deployments -A",
+			},
+			{
+				Name:    "Services",
+				Command: "get services -A",
 			},
 		},
 		CustomCommands: []CustomCommand{},

@@ -17,16 +17,16 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected pager to be 'less', got '%s'", cfg.Pager)
 	}
 
-	if len(cfg.Tabs) != 1 {
-		t.Errorf("expected 1 default tab, got %d", len(cfg.Tabs))
+	if len(cfg.Tabs) != 3 {
+		t.Errorf("expected 3 default tabs, got %d", len(cfg.Tabs))
 	}
 
 	if cfg.Tabs[0].Name != "Pods" {
 		t.Errorf("expected default tab name to be 'Pods', got '%s'", cfg.Tabs[0].Name)
 	}
 
-	if cfg.Tabs[0].Resource != "pods" {
-		t.Errorf("expected default tab resource to be 'pods', got '%s'", cfg.Tabs[0].Resource)
+	if cfg.Tabs[0].Command != "get pods -A" {
+		t.Errorf("expected default tab command to be 'get pods -A', got '%s'", cfg.Tabs[0].Command)
 	}
 
 	// Check some keybindings
@@ -49,11 +49,9 @@ kubectl_bin: /usr/local/bin/kubectl
 pager: bat
 tabs:
   - name: "My Pods"
-    resource: pods
-    namespace: default
+    command: "get pods -n default"
   - name: "Deployments"
-    resource: deployments
-    all_namespaces: true
+    command: "get deployments -A"
 custom_commands:
   - name: "Copy Name"
     key: "y"
@@ -85,8 +83,8 @@ custom_commands:
 		t.Errorf("expected first tab name to be 'My Pods', got '%s'", cfg.Tabs[0].Name)
 	}
 
-	if cfg.Tabs[1].AllNamespaces != true {
-		t.Error("expected second tab all_namespaces to be true")
+	if cfg.Tabs[1].Command != "get deployments -A" {
+		t.Errorf("expected second tab command to be 'get deployments -A', got '%s'", cfg.Tabs[1].Command)
 	}
 
 	if len(cfg.CustomCommands) != 1 {
@@ -142,7 +140,7 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: "pods"},
+					{Name: "Test", Command: "get pods"},
 				},
 			},
 			wantErr: true,
@@ -160,17 +158,17 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "", Resource: "pods"},
+					{Name: "", Command: "get pods"},
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "tab without resource",
+			name: "tab without command",
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: ""},
+					{Name: "Test", Command: ""},
 				},
 			},
 			wantErr: true,
@@ -180,7 +178,7 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: "pods"},
+					{Name: "Test", Command: "get pods"},
 				},
 				CustomCommands: []CustomCommand{
 					{Name: "", Key: "x", Command: "echo"},
@@ -193,7 +191,7 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: "pods"},
+					{Name: "Test", Command: "get pods"},
 				},
 				CustomCommands: []CustomCommand{
 					{Name: "Test", Key: "", Command: "echo"},
@@ -206,7 +204,7 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: "pods"},
+					{Name: "Test", Command: "get pods"},
 				},
 				CustomCommands: []CustomCommand{
 					{Name: "Test", Key: "x", Command: ""},
@@ -219,7 +217,7 @@ func TestValidate(t *testing.T) {
 			config: &Config{
 				KubectlBin: "kubectl",
 				Tabs: []TabConfig{
-					{Name: "Test", Resource: "pods"},
+					{Name: "Test", Command: "get pods"},
 				},
 				CustomCommands: []CustomCommand{
 					{Name: "Test", Key: "x", Command: "echo hello"},
