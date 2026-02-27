@@ -8,14 +8,6 @@ import (
 	"strings"
 )
 
-// kubectlErrMsg returns stderr if non-empty, otherwise the error string
-func kubectlErrMsg(stderr string, err error) string {
-	if s := strings.TrimSpace(stderr); s != "" {
-		return s
-	}
-	return err.Error()
-}
-
 // LogsOptions contains options for the logs action
 type LogsOptions struct {
 	Follow    bool
