@@ -435,14 +435,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.search.IsFiltered() {
 				// Refresh on same tab: re-apply the active filter to the new data
 				m.search.SetItems(msg.Data.Rows)
-				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
+				m.list.UpdateItems(msg.Data.Headers, m.search.FilteredItems())
 			} else if savedQuery := m.tabSearchStates[m.currentTab]; savedQuery != "" {
 				// Returning to a tab that had a saved filter: restore it
 				m.search.SetItems(msg.Data.Rows)
 				m.search.RestoreFilter(savedQuery)
-				m.list.SetItems(msg.Data.Headers, m.search.FilteredItems())
+				m.list.UpdateItems(msg.Data.Headers, m.search.FilteredItems())
 			} else {
-				m.list.SetItems(msg.Data.Headers, msg.Data.Rows)
+				m.list.UpdateItems(msg.Data.Headers, msg.Data.Rows)
 			}
 		}
 
@@ -596,6 +596,8 @@ func (m *Model) handleTabChange() tea.Cmd {
 		m.list.SetItems([]string{}, [][]string{})
 		return nil
 	}
+	// Reset list for the new tab so cursor starts at top
+	m.list.SetItems([]string{}, [][]string{})
 	return m.loadResources()
 }
 
