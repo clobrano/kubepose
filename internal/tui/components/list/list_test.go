@@ -413,6 +413,66 @@ func TestSetItemsClearsSelection(t *testing.T) {
 	}
 }
 
+func TestUpdateItemsPreservesCursor(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+	list.MoveDown()
+	list.MoveDown() // cursor at 2
+
+	// UpdateItems should preserve cursor position
+	list.UpdateItems([]string{"NAME"}, [][]string{{"x"}, {"y"}, {"z"}})
+
+	if list.SelectedIndex() != 2 {
+		t.Errorf("SelectedIndex() after UpdateItems = %d, want 2", list.SelectedIndex())
+	}
+	if list.RowCount() != 3 {
+		t.Errorf("RowCount() after UpdateItems = %d, want 3", list.RowCount())
+	}
+}
+
+func TestUpdateItemsClampsCursor(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}, {"d"}})
+	list.MoveToBottom() // cursor at 3
+
+	// Shrink the list — cursor should clamp to last item
+	list.UpdateItems([]string{"NAME"}, [][]string{{"x"}, {"y"}})
+
+	if list.SelectedIndex() != 1 {
+		t.Errorf("SelectedIndex() after UpdateItems with fewer rows = %d, want 1", list.SelectedIndex())
+	}
+}
+
+func TestUpdateItemsClampsCursorToZeroOnEmpty(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}})
+	list.MoveDown() // cursor at 1
+
+	list.UpdateItems([]string{"NAME"}, [][]string{})
+
+	if list.SelectedIndex() != 0 {
+		t.Errorf("SelectedIndex() after UpdateItems with empty rows = %d, want 0", list.SelectedIndex())
+	}
+}
+
+func TestUpdateItemsPrunesOutOfRangeSelections(t *testing.T) {
+	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}, {"c"}})
+	list.SelectAll() // 0, 1, 2 selected
+
+	// Shrink to 2 rows — selection at index 2 should be pruned
+	list.UpdateItems([]string{"NAME"}, [][]string{{"x"}, {"y"}})
+
+	if list.SelectedCount() != 2 {
+		t.Errorf("SelectedCount() after UpdateItems = %d, want 2", list.SelectedCount())
+	}
+	if !list.IsSelected(0) {
+		t.Error("Item 0 should still be selected")
+	}
+	if !list.IsSelected(1) {
+		t.Error("Item 1 should still be selected")
+	}
+	if list.IsSelected(2) {
+		t.Error("Item 2 should have been pruned")
+	}
+}
+
 func TestStringContainsSelectedCount(t *testing.T) {
 	list := New([]string{"NAME"}, [][]string{{"a"}, {"b"}})
 	list.SelectAll()

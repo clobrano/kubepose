@@ -69,7 +69,7 @@ func New(headers []string, rows [][]string) *Model {
 	return m
 }
 
-// SetItems updates the list content
+// SetItems updates the list content and resets cursor position
 func (m *Model) SetItems(headers []string, rows [][]string) {
 	m.headers = headers
 	m.rows = rows
@@ -77,6 +77,29 @@ func (m *Model) SetItems(headers []string, rows [][]string) {
 	m.viewportOffset = 0
 	m.selectedIndices = make(map[int]bool)
 	m.calculateColumnWidths()
+}
+
+// UpdateItems updates the list content while preserving cursor and selection state.
+// The cursor is clamped to the new row count if it exceeds it.
+func (m *Model) UpdateItems(headers []string, rows [][]string) {
+	m.headers = headers
+	m.rows = rows
+	// Clamp cursor to valid range
+	if m.cursor >= len(m.rows) {
+		if len(m.rows) > 0 {
+			m.cursor = len(m.rows) - 1
+		} else {
+			m.cursor = 0
+		}
+	}
+	// Prune selections that are out of range
+	for idx := range m.selectedIndices {
+		if idx >= len(m.rows) {
+			delete(m.selectedIndices, idx)
+		}
+	}
+	m.calculateColumnWidths()
+	m.ensureCursorVisible()
 }
 
 // SetSize sets the dimensions for the list
