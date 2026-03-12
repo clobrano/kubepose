@@ -120,7 +120,7 @@ func (m *Model) ScrollToTop() {
 
 // ScrollToBottom scrolls to the bottom
 func (m *Model) ScrollToBottom() {
-	lines := strings.Split(m.content, "\n")
+	lines := m.wrapLines()
 	m.scrollOffset = len(lines) - m.contentHeight()
 	if m.scrollOffset < 0 {
 		m.scrollOffset = 0
@@ -151,9 +151,31 @@ func (m *Model) contentHeight() int {
 	return h
 }
 
+// wrapLines returns lines wrapped to fit the current width
+func (m *Model) wrapLines() []string {
+	rawLines := strings.Split(m.content, "\n")
+	maxWidth := m.width - 2
+	if maxWidth < 1 {
+		maxWidth = 1
+	}
+	var lines []string
+	for _, raw := range rawLines {
+		if len(raw) <= maxWidth {
+			lines = append(lines, raw)
+		} else {
+			for len(raw) > maxWidth {
+				lines = append(lines, raw[:maxWidth])
+				raw = raw[maxWidth:]
+			}
+			lines = append(lines, raw)
+		}
+	}
+	return lines
+}
+
 // ensureScrollBounds ensures scroll offset is within valid bounds
 func (m *Model) ensureScrollBounds() {
-	lines := strings.Split(m.content, "\n")
+	lines := m.wrapLines()
 	maxOffset := len(lines) - m.contentHeight()
 	if maxOffset < 0 {
 		maxOffset = 0
@@ -196,8 +218,9 @@ func (m *Model) View() string {
 	b.WriteString(m.styles.Header.Width(m.width).Render(header))
 	b.WriteString("\n")
 
-	// Content
-	lines := strings.Split(m.content, "\n")
+	// Content - wrap long lines to fit width
+	lines := m.wrapLines()
+
 	contentHeight := m.contentHeight()
 
 	endIdx := m.scrollOffset + contentHeight
@@ -206,12 +229,7 @@ func (m *Model) View() string {
 	}
 
 	for i := m.scrollOffset; i < endIdx; i++ {
-		line := lines[i]
-		// Truncate long lines
-		if len(line) > m.width-2 {
-			line = line[:m.width-5] + "..."
-		}
-		b.WriteString(m.styles.Content.Render(line))
+		b.WriteString(m.styles.Content.Render(lines[i]))
 		if i < endIdx-1 {
 			b.WriteString("\n")
 		}
