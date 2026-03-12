@@ -1,10 +1,13 @@
 package config
 
+import "time"
+
 // DefaultConfig returns a Config with sensible default values
 func DefaultConfig() *Config {
 	return &Config{
-		KubectlBin: "kubectl",
-		Pager:      "less",
+		KubectlBin:      "kubectl",
+		Pager:           "less",
+		RefreshInterval: 5 * time.Second,
 		Keybindings: Keybindings{
 			Quit:            "q",
 			Help:            "?",
