@@ -57,6 +57,13 @@ type LogsLoadedMsg struct {
 	Content   string
 }
 
+// LogsFollowMsg is sent to request streaming logs via kubectl logs -f
+type LogsFollowMsg struct {
+	PodName   string
+	Namespace string
+	Container string
+}
+
 // ExecRequestMsg is sent to request exec into a container
 type ExecRequestMsg struct {
 	PodName   string

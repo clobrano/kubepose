@@ -469,6 +469,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetContent(title+" (logs)", msg.Content, detail.FormatTable)
 		m.detail.SetSize(m.width, m.height-2)
 
+	case LogsFollowMsg:
+		return m, tea.ExecProcess(
+			makeKubectlLogsFollowCmd(m.kubectl.BinaryPath(), msg.PodName, msg.Namespace, msg.Container),
+			func(err error) tea.Msg {
+				return RefreshMsg{}
+			},
+		)
+
 	case ContainersLoadedMsg:
 		m.pendingNames = []string{msg.PodName}
 		m.pendingNs = msg.Namespace
@@ -829,6 +837,14 @@ func (m *Model) viewLogs(follow bool) tea.Cmd {
 			container = containers[0]
 		}
 
+		if follow {
+			return LogsFollowMsg{
+				PodName:   podName,
+				Namespace: namespace,
+				Container: container,
+			}
+		}
+
 		opts := actions.LogsOptions{
 			Container: container,
 			TailLines: 500,
@@ -993,6 +1009,23 @@ func makeKubectlExecCmd(kubectlBin, podName, namespace, container string) *exec.
 	return cmd
 }
 
+// makeKubectlLogsFollowCmd creates an exec.Cmd for kubectl logs -f
+func makeKubectlLogsFollowCmd(kubectlBin, podName, namespace, container string) *exec.Cmd {
+	args := []string{"logs", "-f", podName}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+	if container != "" {
+		args = append(args, "-c", container)
+	}
+	args = append(args, "--tail", "500")
+	cmd := exec.Command(kubectlBin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
 // rolloutRestart triggers a rollout restart
 func (m *Model) rolloutRestart() tea.Cmd {
 	return func() tea.Msg {
@@ -1063,7 +1096,20 @@ func (m *Model) viewLogsWithContainer(container string, follow bool) tea.Cmd {
 		}
 
 		podName := m.pendingNames[0]
-		ctx := actions.NewContext(m.kubectl, "pod", []string{podName}, m.pendingNs)
+		namespace := m.pendingNs
+
+		m.pendingNames = nil
+		m.pendingNs = ""
+
+		if follow {
+			return LogsFollowMsg{
+				PodName:   podName,
+				Namespace: namespace,
+				Container: container,
+			}
+		}
+
+		ctx := actions.NewContext(m.kubectl, "pod", []string{podName}, namespace)
 
 		opts := actions.LogsOptions{
 			Container: container,
@@ -1074,9 +1120,6 @@ func (m *Model) viewLogsWithContainer(container string, follow bool) tea.Cmd {
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
-
-		m.pendingNames = nil
-		m.pendingNs = ""
 
 		return LogsLoadedMsg{
 			PodName:   podName,
