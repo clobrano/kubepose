@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -20,11 +21,12 @@ func DefaultConfigPath() (string, error) {
 
 // Config represents the main configuration for KubePose
 type Config struct {
-	KubectlBin     string          `yaml:"kubectl_bin"`
-	Pager          string          `yaml:"pager"`
-	Keybindings    Keybindings     `yaml:"keybindings"`
-	Tabs           []TabConfig     `yaml:"tabs"`
-	CustomCommands []CustomCommand `yaml:"custom_commands"`
+	KubectlBin      string          `yaml:"kubectl_bin"`
+	Pager           string          `yaml:"pager"`
+	RefreshInterval time.Duration   `yaml:"refresh_interval"`
+	Keybindings     Keybindings     `yaml:"keybindings"`
+	Tabs            []TabConfig     `yaml:"tabs"`
+	CustomCommands  []CustomCommand `yaml:"custom_commands"`
 }
 
 // TabConfig represents the configuration for a single tab

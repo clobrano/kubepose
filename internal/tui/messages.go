@@ -63,3 +63,6 @@ type ExecRequestMsg struct {
 	Namespace string
 	Container string
 }
+
+// TickMsg is sent periodically to trigger auto-refresh
+type TickMsg struct{}

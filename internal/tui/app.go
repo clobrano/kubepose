@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/clobrano/kubepose/internal/actions"
@@ -161,16 +162,37 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	}
 }
 
+// tickCmd returns a command that sends a TickMsg after the configured refresh interval.
+func (m *Model) tickCmd() tea.Cmd {
+	if m.config.RefreshInterval <= 0 {
+		return nil
+	}
+	return tea.Tick(m.config.RefreshInterval, func(time.Time) tea.Msg {
+		return TickMsg{}
+	})
+}
+
 // Init returns the initial command to run when the program starts
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadContext(),
 		m.loadResources(),
+		m.tickCmd(),
 	)
 }
 
 // Update handles all messages and updates the model state
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle auto-refresh tick: always reschedule, but only refresh in list view
+	// when the user is not actively typing a filter.
+	if _, ok := msg.(TickMsg); ok {
+		next := m.tickCmd()
+		if m.viewState == ViewList && !m.search.IsActive() {
+			return m, tea.Batch(m.loadResources(), next)
+		}
+		return m, next
+	}
+
 	// Handle confirm dialog state
 	if m.viewState == ViewConfirm && m.confirm != nil {
 		m.confirm, _ = m.confirm.Update(msg)
