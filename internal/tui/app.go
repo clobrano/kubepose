@@ -612,8 +612,16 @@ func (m *Model) handleTabChange() tea.Cmd {
 // loadResources returns a command to load resources for the current tab
 func (m *Model) loadResources() tea.Cmd {
 	return func() tea.Msg {
-		// Search tab doesn't load automatically
+		// Search tab: re-execute the last search command if one exists
 		if m.currentTab == SearchTabIndex {
+			if m.searchCommand != "" {
+				output, err := m.kubectl.ExecuteRaw(m.searchCommand)
+				if err != nil {
+					return ErrorMsg{Err: err}
+				}
+				data := kubectl.ParseTableOutput(output)
+				return ResourcesLoadedMsg{Data: data}
+			}
 			return ResourcesLoadedMsg{Data: &kubectl.TableData{}}
 		}
 
