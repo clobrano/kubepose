@@ -271,9 +271,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.searchInput.Result() {
 		case dialog.InputSubmitted:
 			m.viewState = ViewList
-			m.searchCommand = m.searchInput.Value()
+			newCommand := m.searchInput.Value()
 			m.searchInput.Reset()
-			return m, m.executeSearchCommand()
+			if m.currentTab == SearchTabIndex {
+				m.searchCommand = newCommand
+				return m, m.executeSearchCommand()
+			}
+			// Config tab: update the tab's command and reload
+			configTabIndex := m.currentTab - 1
+			if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
+				m.config.Tabs[configTabIndex].Command = newCommand
+			}
+			return m, m.loadResources()
 		case dialog.InputCancelled:
 			m.viewState = ViewList
 			m.searchInput.Reset()
@@ -331,14 +340,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.Activate()
 			return m, nil
 		case "enter":
-			// On Search tab, activate command input
+			// Open command input dialog pre-filled with current command
 			if m.currentTab == SearchTabIndex {
-				m.viewState = ViewSearchTab
-				m.searchInput.SetSize(m.width, m.height)
-				return m, nil
+				m.searchInput.SetValue(m.searchCommand)
+			} else {
+				configTabIndex := m.currentTab - 1
+				if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
+					m.searchInput.SetValue(m.config.Tabs[configTabIndex].Command)
+				}
 			}
-			// Show detail view (table format)
-			return m, m.loadResourceDetail(detail.FormatTable)
+			m.viewState = ViewSearchTab
+			m.searchInput.SetSize(m.width, m.height)
+			return m, nil
 		case "Y":
 			// Show detail view (YAML format)
 			return m, m.loadResourceDetail(detail.FormatYAML)

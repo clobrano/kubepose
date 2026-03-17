@@ -86,10 +86,16 @@ func (m *InputModel) WithActionID(id string) *InputModel {
 	return m
 }
 
-// WithValue sets the initial value
+// WithValue sets the initial value (builder pattern)
 func (m *InputModel) WithValue(value string) *InputModel {
 	m.textInput.SetValue(value)
 	return m
+}
+
+// SetValue sets the input value and places the cursor at the end
+func (m *InputModel) SetValue(value string) {
+	m.textInput.SetValue(value)
+	m.textInput.CursorEnd()
 }
 
 // SetSize sets the dialog dimensions and adjusts the input width to 70% of available space
