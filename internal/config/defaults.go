@@ -37,15 +37,15 @@ func DefaultConfig() *Config {
 		Tabs: []TabConfig{
 			{
 				Name:    "Pods",
-				Command: "get pods -A",
+				Command: "pods -A",
 			},
 			{
 				Name:    "Deployments",
-				Command: "get deployments -A",
+				Command: "deployments -A",
 			},
 			{
 				Name:    "Services",
-				Command: "get services -A",
+				Command: "services -A",
 			},
 		},
 		CustomCommands: []CustomCommand{},

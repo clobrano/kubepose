@@ -25,8 +25,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected default tab name to be 'Pods', got '%s'", cfg.Tabs[0].Name)
 	}
 
-	if cfg.Tabs[0].Command != "get pods -A" {
-		t.Errorf("expected default tab command to be 'get pods -A', got '%s'", cfg.Tabs[0].Command)
+	if cfg.Tabs[0].Command != "pods -A" {
+		t.Errorf("expected default tab command to be 'pods -A', got '%s'", cfg.Tabs[0].Command)
 	}
 
 	// Check some keybindings

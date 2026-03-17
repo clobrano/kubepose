@@ -36,6 +36,16 @@ const (
 // SearchTabIndex is the index of the special Search tab (always first)
 const SearchTabIndex = 0
 
+// normalizeGetCommand strips a leading "get" verb from a command if present,
+// so that both "pods -A" and "get pods -A" (legacy configs) are handled uniformly.
+func normalizeGetCommand(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if strings.HasPrefix(trimmed, "get ") {
+		return strings.TrimSpace(trimmed[4:])
+	}
+	return trimmed
+}
+
 // getNamespaceFromCommand extracts the explicit namespace from a kubectl command string.
 // Returns "" if -A/--all-namespaces is used or no namespace flag is present.
 func getNamespaceFromCommand(command string) string {
@@ -54,23 +64,17 @@ func getNamespaceFromCommand(command string) string {
 	return ""
 }
 
-// getResourceTypeFromCommand extracts the resource type from a kubectl command string
-// e.g., "get pods -A" returns "pods", "get deployments -n default" returns "deployments"
+// getResourceTypeFromCommand extracts the resource type from a kubectl command string.
+// Handles both "pods -A" and legacy "get pods -A" formats.
 func getResourceTypeFromCommand(command string) string {
-	parts := strings.Fields(command)
-	// Look for the resource type after "get" or similar commands
-	for i, part := range parts {
-		if part == "get" || part == "describe" || part == "delete" {
-			if i+1 < len(parts) {
-				// Return the next part as the resource type, ignoring flags
-				next := parts[i+1]
-				if !strings.HasPrefix(next, "-") {
-					return next
-				}
-			}
+	normalized := normalizeGetCommand(command)
+	parts := strings.Fields(normalized)
+	// The first non-flag token is the resource type
+	for _, part := range parts {
+		if !strings.HasPrefix(part, "-") {
+			return part
 		}
 	}
-	// If no recognized command pattern, return empty
 	return ""
 }
 
@@ -144,7 +148,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	}
 
 	// Create search input for the Search tab
-	searchInput := dialog.NewInput("kubectl", "get pods -A")
+	searchInput := dialog.NewInput("kubectl get", "pods -A")
 	searchInput.WithValue("")
 
 	return &Model{
@@ -624,7 +628,7 @@ func (m *Model) loadResources() tea.Cmd {
 		}
 
 		tab := m.config.Tabs[configTabIndex]
-		output, err := m.kubectl.ExecuteRaw(tab.Command)
+		output, err := m.kubectl.ExecuteRaw("get " + normalizeGetCommand(tab.Command))
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
@@ -641,7 +645,7 @@ func (m *Model) executeSearchCommand() tea.Cmd {
 			return ResourcesLoadedMsg{Data: &kubectl.TableData{}}
 		}
 
-		output, err := m.kubectl.ExecuteRaw(m.searchCommand)
+		output, err := m.kubectl.ExecuteRaw("get " + normalizeGetCommand(m.searchCommand))
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
