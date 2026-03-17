@@ -309,8 +309,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.SetItems(m.resources.Headers, filtered)
 		}
 
-		// Check if search was fully cleared (Esc pressed, no filter remaining)
+		// Check if search was fully cleared (Esc pressed or Enter on empty input)
 		if !m.search.IsActive() && !m.search.IsFiltered() && m.resources != nil {
+			delete(m.tabSearchStates, m.currentTab)
 			m.list.SetItems(m.resources.Headers, m.resources.Rows)
 		}
 
@@ -611,7 +612,11 @@ func (m *Model) loadContext() tea.Cmd {
 // saveCurrentTabSearch saves the active search filter for the current tab and
 // deactivates the search component so the next tab starts clean.
 func (m *Model) saveCurrentTabSearch() {
-	m.tabSearchStates[m.currentTab] = m.search.Query()
+	if q := m.search.Query(); q != "" {
+		m.tabSearchStates[m.currentTab] = q
+	} else {
+		delete(m.tabSearchStates, m.currentTab)
+	}
 	m.search.Deactivate()
 }
 
