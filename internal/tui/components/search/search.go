@@ -50,13 +50,17 @@ func New() *Model {
 	}
 }
 
-// Activate enables search mode and focuses the input
+// Activate enables search mode and focuses the input.
+// If a filter is already applied, keep it so the user can edit it.
 func (m *Model) Activate() {
 	m.active = true
-	m.query = ""
 	m.input.Focus()
-	m.input.SetValue("")
-	m.filteredRows = m.originalRows
+	if m.query != "" {
+		m.input.SetValue(m.query)
+	} else {
+		m.input.SetValue("")
+		m.filteredRows = m.originalRows
+	}
 }
 
 // Deactivate disables search mode and clears the filter
