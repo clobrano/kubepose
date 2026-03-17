@@ -149,6 +149,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 
 	// Create search input for the Search tab
 	searchInput := dialog.NewInput("kubectl get", "pods -A")
+	searchInput.WithHint("e.g. pods -A, deployments -n default, services -l app=web")
 	searchInput.WithValue("")
 
 	return &Model{

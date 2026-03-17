@@ -23,6 +23,7 @@ const (
 type InputModel struct {
 	title       string
 	placeholder string
+	hint        string
 	textInput   textinput.Model
 	result      InputResult
 	width       int
@@ -73,6 +74,12 @@ func NewInput(title, placeholder string) *InputModel {
 	}
 }
 
+// WithHint sets a descriptive hint shown below the title
+func (m *InputModel) WithHint(hint string) *InputModel {
+	m.hint = hint
+	return m
+}
+
 // WithActionID sets an identifier for the action
 func (m *InputModel) WithActionID(id string) *InputModel {
 	m.actionID = id
@@ -85,10 +92,15 @@ func (m *InputModel) WithValue(value string) *InputModel {
 	return m
 }
 
-// SetSize sets the dialog dimensions
+// SetSize sets the dialog dimensions and adjusts the input width to 70% of available space
 func (m *InputModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	// Dialog is 70% of terminal width, minus border/padding (2 border + 4 padding = 6)
+	dialogInner := width*70/100 - 6
+	if dialogInner > 0 {
+		m.textInput.Width = dialogInner
+	}
 }
 
 // Result returns the current result
@@ -139,16 +151,29 @@ func (m *InputModel) View() string {
 
 	// Title
 	b.WriteString(m.styles.Title.Render(m.title))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Hint (if set)
+	if m.hint != "" {
+		b.WriteString(m.styles.Hint.Render(m.hint))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Input field
 	b.WriteString(m.textInput.View())
 	b.WriteString("\n\n")
 
-	// Hints
+	// Key hints
 	b.WriteString(m.styles.Hint.Render("[Enter] submit  [Esc] cancel"))
 
-	content := m.styles.Dialog.Render(b.String())
+	// Use 70% of terminal width for the dialog
+	dialogWidth := m.width * 70 / 100
+	if dialogWidth < 40 {
+		dialogWidth = 40
+	}
+	dialogStyle := m.styles.Dialog.Width(dialogWidth)
+	content := dialogStyle.Render(b.String())
 
 	// Center the dialog
 	if m.width > 0 && m.height > 0 {
