@@ -150,7 +150,7 @@ func TestSearchIsFiltered(t *testing.T) {
 	}
 }
 
-func TestSearchActivateClearsFilter(t *testing.T) {
+func TestSearchActivatePreservesFilter(t *testing.T) {
 	s := New()
 
 	// Simulate confirmed filter state (Enter pressed)
@@ -162,10 +162,13 @@ func TestSearchActivateClearsFilter(t *testing.T) {
 		t.Error("Should be filtered in confirmed state")
 	}
 
-	// Re-activating search should clear the filter
+	// Re-activating search should preserve the filter so user can edit it
 	s.Activate()
-	if s.IsFiltered() {
-		t.Error("Activate() should clear the filter query")
+	if !s.IsFiltered() {
+		t.Error("Activate() should preserve the existing filter query")
+	}
+	if s.Query() != "nginx" {
+		t.Errorf("Activate() should keep input value, got %q", s.Query())
 	}
 }
 
