@@ -549,7 +549,7 @@ func (m *Model) View() string {
 	// Search tab: show command prompt info when on Search tab
 	if m.currentTab == SearchTabIndex {
 		if m.searchCommand != "" {
-			b.WriteString(fmt.Sprintf("kubectl %s", m.searchCommand))
+			b.WriteString(fmt.Sprintf("kubectl get %s", normalizeGetCommand(m.searchCommand)))
 		} else {
 			b.WriteString("Press [Enter] to enter a kubectl command")
 		}
@@ -633,7 +633,7 @@ func (m *Model) loadResources() tea.Cmd {
 		// Search tab: re-execute the last search command if one exists
 		if m.currentTab == SearchTabIndex {
 			if m.searchCommand != "" {
-				output, err := m.kubectl.ExecuteRaw(m.searchCommand)
+				output, err := m.kubectl.ExecuteRaw("get " + normalizeGetCommand(m.searchCommand))
 				if err != nil {
 					return ErrorMsg{Err: err}
 				}
