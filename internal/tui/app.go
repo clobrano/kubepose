@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/clobrano/kubepose/internal/actions"
 	"github.com/clobrano/kubepose/internal/config"
 	"github.com/clobrano/kubepose/internal/kubectl"
@@ -134,6 +136,10 @@ type Model struct {
 	// Per-tab search state: saves the last confirmed filter for each tab index
 	tabSearchStates map[int]string
 
+	// Loading state
+	loading bool
+	spinner spinner.Model
+
 	// Error state
 	lastError error
 }
@@ -152,6 +158,11 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	searchInput.WithHint("e.g. pods -A, deployments -n default, services -l app=web")
 	searchInput.WithValue("")
 
+	// Create spinner for loading indicator
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
+
 	return &Model{
 		config:          cfg,
 		kubectl:         k,
@@ -164,6 +175,8 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		detail:          detail.New("", "", detail.FormatTable),
 		searchInput:     searchInput,
 		tabSearchStates: make(map[int]string),
+		loading:         true,
+		spinner:         s,
 	}
 }
 
@@ -183,11 +196,28 @@ func (m *Model) Init() tea.Cmd {
 		m.loadContext(),
 		m.loadResources(),
 		m.tickCmd(),
+		m.spinner.Tick,
 	)
+}
+
+// startLoading sets loading state and returns the cmd wrapped with spinner tick
+func (m *Model) startLoading(cmd tea.Cmd) tea.Cmd {
+	m.loading = true
+	return tea.Batch(cmd, m.spinner.Tick)
 }
 
 // Update handles all messages and updates the model state
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Forward spinner tick messages
+	if _, ok := msg.(spinner.TickMsg); ok {
+		if m.loading {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	// Handle auto-refresh tick: always reschedule, but only refresh in list view
 	// when the user is not actively typing a filter.
 	if _, ok := msg.(TickMsg); ok {
@@ -204,7 +234,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.confirm.Result() {
 		case dialog.ConfirmYes:
 			m.viewState = ViewList
-			return m, m.executeDelete()
+			return m, m.startLoading(m.executeDelete())
 		case dialog.ConfirmNo:
 			m.viewState = ViewList
 			m.pendingAction = ""
@@ -272,15 +302,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+u", "pgup":
 				m.detail.PageUp()
 			case "Y":
-				return m, m.loadResourceDetail(detail.FormatYAML)
+				return m, m.startLoading(m.loadResourceDetail(detail.FormatYAML))
 			case "J":
-				return m, m.loadResourceDetail(detail.FormatJSON)
+				return m, m.startLoading(m.loadResourceDetail(detail.FormatJSON))
 			}
 		case tea.WindowSizeMsg:
 			m.width = msg.Width
 			m.height = msg.Height
 			m.detail.SetSize(msg.Width, msg.Height-2)
 		case DetailLoadedMsg:
+			m.loading = false
 			m.detail.SetContent(msg.ResourceName, msg.Content, detail.Format(msg.Format))
 		}
 		return m, nil
@@ -298,14 +329,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput.Reset()
 			if m.currentTab == SearchTabIndex {
 				m.searchCommand = newCommand
-				return m, m.executeSearchCommand()
+				return m, m.startLoading(m.executeSearchCommand())
 			}
 			// Config tab: update the tab's command and reload
 			configTabIndex := m.currentTab - 1
 			if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
 				m.config.Tabs[configTabIndex].Command = newCommand
 			}
-			return m, m.loadResources()
+			return m, m.startLoading(m.loadResources())
 		case dialog.InputCancelled:
 			m.viewState = ViewList
 			m.searchInput.Reset()
@@ -378,10 +409,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "Y":
 			// Show detail view (YAML format)
-			return m, m.loadResourceDetail(detail.FormatYAML)
+			return m, m.startLoading(m.loadResourceDetail(detail.FormatYAML))
 		case "J":
 			// Show detail view (JSON format)
-			return m, m.loadResourceDetail(detail.FormatJSON)
+			return m, m.startLoading(m.loadResourceDetail(detail.FormatJSON))
 		case "tab", "right", "l":
 			m.saveCurrentTabSearch()
 			m.tabs.Next()
@@ -409,7 +440,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G":
 			m.list.MoveToBottom()
 		case "r":
-			return m, m.loadResources()
+			return m, m.startLoading(m.loadResources())
 		case " ":
 			// Toggle selection of current item
 			m.list.ToggleSelect()
@@ -421,10 +452,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.DeselectAll()
 		case "d":
 			// Describe selected resource(s)
-			return m, m.describeResources()
+			return m, m.startLoading(m.describeResources())
 		case "L":
 			// View logs (for pods)
-			return m, m.viewLogs(false)
+			return m, m.startLoading(m.viewLogs(false))
 		case "ctrl+l":
 			// Follow logs (for pods)
 			return m, m.viewLogs(true)
@@ -439,13 +470,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.execIntoPod()
 		case "R":
 			// Rollout restart
-			return m, m.rolloutRestart()
+			return m, m.startLoading(m.rolloutRestart())
 		case "c":
 			// Switch context
-			return m, m.showContextSelector()
+			return m, m.startLoading(m.showContextSelector())
 		case "n":
 			// Switch namespace
-			return m, m.showNamespaceSelector()
+			return m, m.startLoading(m.showNamespaceSelector())
 		}
 
 	case tea.WindowSizeMsg:
@@ -469,8 +500,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentNamespace = msg.Namespace
 		m.header.SetContext(msg.Context)
 		m.header.SetNamespace(msg.Namespace)
+		m.loading = false
 
 	case ResourcesLoadedMsg:
+		m.loading = false
 		m.resources = msg.Data
 		m.lastError = nil
 		if msg.Data != nil {
@@ -489,9 +522,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case ErrorMsg:
+		m.loading = false
 		m.lastError = msg.Err
 
 	case DescribeLoadedMsg:
+		m.loading = false
 		m.viewState = ViewDetail
 		title := "Describe"
 		if len(msg.ResourceNames) == 1 {
@@ -503,6 +538,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetSize(m.width, m.height-2)
 
 	case LogsLoadedMsg:
+		m.loading = false
 		m.viewState = ViewDetail
 		title := msg.PodName
 		if msg.Container != "" {
@@ -520,6 +556,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case ContainersLoadedMsg:
+		m.loading = false
 		m.pendingNames = []string{msg.PodName}
 		m.pendingNs = msg.Namespace
 		if msg.Follow {
@@ -598,7 +635,9 @@ func (m *Model) View() string {
 
 	// Footer/help
 	b.WriteString("\n\n")
-	if m.search.IsActive() {
+	if m.loading {
+		b.WriteString(m.spinner.View() + " Loading...")
+	} else if m.search.IsActive() {
 		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
 	} else if m.search.IsFiltered() {
 		b.WriteString("[Esc] clear filter  [/] modify filter  [d]escribe [L]ogs [D]elete [e]dit [x]exec")
@@ -652,7 +691,7 @@ func (m *Model) handleTabChange() tea.Cmd {
 	}
 	// Reset list for the new tab so cursor starts at top
 	m.list.SetItems([]string{}, [][]string{})
-	return m.loadResources()
+	return m.startLoading(m.loadResources())
 }
 
 // loadResources returns a command to load resources for the current tab
