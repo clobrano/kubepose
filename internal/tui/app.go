@@ -230,12 +230,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle detail view state
 	if m.viewState == ViewDetail {
+		// When the detail search input is active, forward messages to it
+		if m.detail.IsSearching() {
+			var cmd tea.Cmd
+			m.detail, cmd = m.detail.Update(msg)
+			return m, cmd
+		}
+
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
-			case "q", "esc":
+			case "q":
+				m.detail.ClearSearch()
 				m.viewState = ViewList
 				return m, nil
+			case "esc":
+				// If a search query is active, clear it first; otherwise go back
+				if m.detail.HasSearchQuery() {
+					m.detail.ClearSearch()
+				} else {
+					m.viewState = ViewList
+				}
+				return m, nil
+			case "/":
+				m.detail.StartSearch()
+				return m, nil
+			case "n":
+				m.detail.NextMatch()
+			case "N":
+				m.detail.PrevMatch()
 			case "j", "down":
 				m.detail.ScrollDown()
 			case "k", "up":
