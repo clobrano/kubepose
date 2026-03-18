@@ -2,11 +2,14 @@ package dialog
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/clobrano/kubepose/internal/tui/components/search"
 )
 
 // SelectorResult represents the result of a selector dialog
@@ -20,14 +23,18 @@ const (
 
 // SelectorModel represents a selection dialog
 type SelectorModel struct {
-	title    string
-	items    []string
-	cursor   int
-	result   SelectorResult
-	width    int
-	height   int
-	styles   *SelectorStyles
-	actionID string
+	title         string
+	allItems      []string // original unfiltered items
+	items         []string // currently visible (filtered) items
+	cursor        int
+	result        SelectorResult
+	width         int
+	height        int
+	styles        *SelectorStyles
+	actionID      string
+	filterInput   textinput.Model
+	filterActive  bool
+	filterPattern string
 }
 
 // SelectorStyles defines the styles for the selector dialog
@@ -61,12 +68,19 @@ func DefaultSelectorStyles() *SelectorStyles {
 
 // NewSelector creates a new selector dialog
 func NewSelector(title string, items []string) *SelectorModel {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	ti.CharLimit = 64
+
 	return &SelectorModel{
-		title:  title,
-		items:  items,
-		cursor: 0,
-		result: SelectorPending,
-		styles: DefaultSelectorStyles(),
+		title:       title,
+		allItems:    items,
+		items:       items,
+		cursor:      0,
+		result:      SelectorPending,
+		styles:      DefaultSelectorStyles(),
+		filterInput: ti,
 	}
 }
 
@@ -109,12 +123,71 @@ func (m *SelectorModel) ActionID() string {
 func (m *SelectorModel) Reset() {
 	m.result = SelectorPending
 	m.cursor = 0
+	m.filterActive = false
+	m.filterPattern = ""
+	m.filterInput.SetValue("")
+	m.filterInput.Blur()
+	m.items = m.allItems
+}
+
+// applyFilter filters allItems using fuzzy matching and updates items
+func (m *SelectorModel) applyFilter() {
+	pattern := m.filterInput.Value()
+	m.filterPattern = pattern
+
+	if pattern == "" {
+		m.items = m.allItems
+		m.cursor = 0
+		return
+	}
+
+	type scored struct {
+		item  string
+		score int
+	}
+	var matches []scored
+	for _, item := range m.allItems {
+		if ok, s := search.FuzzyMatch(pattern, item); ok {
+			matches = append(matches, scored{item, s})
+		}
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].score > matches[j].score
+	})
+
+	m.items = make([]string, len(matches))
+	for i, s := range matches {
+		m.items[i] = s.item
+	}
+	m.cursor = 0
 }
 
 // Update handles key messages
 func (m *SelectorModel) Update(msg tea.Msg) (*SelectorModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.filterActive {
+			switch msg.String() {
+			case "enter":
+				m.filterActive = false
+				m.filterInput.Blur()
+				return m, nil
+			case "esc":
+				m.filterActive = false
+				m.filterInput.Blur()
+				m.filterInput.SetValue("")
+				m.filterPattern = ""
+				m.items = m.allItems
+				m.cursor = 0
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.filterInput, cmd = m.filterInput.Update(msg)
+				m.applyFilter()
+				return m, cmd
+			}
+		}
+
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("j", "down"))):
 			if m.cursor < len(m.items)-1 {
@@ -131,9 +204,24 @@ func (m *SelectorModel) Update(msg tea.Msg) (*SelectorModel, tea.Cmd) {
 				m.cursor = len(m.items) - 1
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			m.result = SelectorSelected
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc", "q"))):
+			if len(m.items) > 0 {
+				m.result = SelectorSelected
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+			if m.filterPattern != "" {
+				// Clear filter first
+				m.filterPattern = ""
+				m.filterInput.SetValue("")
+				m.items = m.allItems
+				m.cursor = 0
+			} else {
+				m.result = SelectorCancelled
+			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("q"))):
 			m.result = SelectorCancelled
+		case key.Matches(msg, key.NewBinding(key.WithKeys("/"))):
+			m.filterActive = true
+			m.filterInput.Focus()
 		}
 	}
 	return m, nil
@@ -150,7 +238,7 @@ func (m *SelectorModel) View() string {
 	// Items
 	maxVisible := 10
 	if m.height > 0 {
-		maxVisible = m.height - 8 // Account for dialog chrome
+		maxVisible = m.height - 10 // Account for dialog chrome + filter line
 		if maxVisible < 3 {
 			maxVisible = 3
 		}
@@ -166,6 +254,10 @@ func (m *SelectorModel) View() string {
 		end = len(m.items)
 	}
 
+	if len(m.items) == 0 {
+		noMatch := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
+		b.WriteString(noMatch.Render("  No matches"))
+	}
 	for i := start; i < end; i++ {
 		item := m.items[i]
 		if i == m.cursor {
@@ -194,8 +286,28 @@ func (m *SelectorModel) View() string {
 		}
 	}
 
+	// Filter input
+	if m.filterActive {
+		b.WriteString("\n\n")
+		b.WriteString(m.filterInput.View())
+	} else if m.filterPattern != "" {
+		b.WriteString("\n\n")
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+		b.WriteString(filterStyle.Render("/ " + m.filterPattern))
+	}
+
 	b.WriteString("\n\n")
-	b.WriteString("[Enter] select  [Esc] cancel")
+	if m.filterActive {
+		b.WriteString("[Enter] confirm filter  [Esc] clear filter")
+	} else {
+		hints := "[Enter] select  [/] filter  [Esc] "
+		if m.filterPattern != "" {
+			hints += "clear filter"
+		} else {
+			hints += "cancel"
+		}
+		b.WriteString(hints)
+	}
 
 	content := m.styles.Dialog.Render(b.String())
 
