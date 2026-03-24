@@ -18,16 +18,48 @@ var (
 )
 
 func main() {
-	// Check for version flag
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("kubepose %s (commit: %s, built: %s)\n", version, commit, date)
-		os.Exit(0)
+	var customConfigPath string
+
+	// Parse flags from os.Args
+	for i := 1; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--version", "-v":
+			fmt.Printf("kubepose %s (commit: %s, built: %s)\n", version, commit, date)
+			os.Exit(0)
+		case "--config", "-c":
+			if i+1 >= len(os.Args) {
+				fmt.Fprintf(os.Stderr, "Error: --config requires a path argument\n")
+				os.Exit(1)
+			}
+			customConfigPath = os.Args[i+1]
+			i++ // skip next arg
+		case "--help", "-h":
+			fmt.Println("Usage: kubepose [flags]")
+			fmt.Println()
+			fmt.Println("Flags:")
+			fmt.Println("  -c, --config <path>   Path to config.yaml (default: ~/.config/kubepose/config.yaml)")
+			fmt.Println("  -v, --version          Show version information")
+			fmt.Println("  -h, --help             Show this help message")
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown flag: %s\nRun 'kubepose --help' for usage.\n", os.Args[i])
+			os.Exit(1)
+		}
 	}
-	// Ensure config exists (create default if needed)
-	configPath, err := config.EnsureConfigExists()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error ensuring config exists: %v\n", err)
-		os.Exit(1)
+
+	var configPath string
+	var err error
+
+	if customConfigPath != "" {
+		// Use the user-specified config path directly
+		configPath = customConfigPath
+	} else {
+		// Ensure default config exists (create if needed)
+		configPath, err = config.EnsureConfigExists()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error ensuring config exists: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Load configuration
