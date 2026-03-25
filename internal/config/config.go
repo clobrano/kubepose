@@ -21,12 +21,13 @@ func DefaultConfigPath() (string, error) {
 
 // Config represents the main configuration for KubePose
 type Config struct {
-	KubectlBin      string          `yaml:"kubectl_bin"`
-	Pager           string          `yaml:"pager"`
-	RefreshInterval time.Duration   `yaml:"refresh_interval"`
-	Keybindings     Keybindings     `yaml:"keybindings"`
-	Tabs            []TabConfig     `yaml:"tabs"`
-	CustomCommands  []CustomCommand `yaml:"custom_commands"`
+	KubectlBin           string          `yaml:"kubectl_bin"`
+	Pager                string          `yaml:"pager"`
+	RefreshInterval      time.Duration   `yaml:"refresh_interval"`
+	LogsFollowInNewShell bool            `yaml:"logs_follow_in_new_shell"`
+	Keybindings          Keybindings     `yaml:"keybindings"`
+	Tabs                 []TabConfig     `yaml:"tabs"`
+	CustomCommands       []CustomCommand `yaml:"custom_commands"`
 }
 
 // TabConfig represents the configuration for a single tab
@@ -49,9 +50,8 @@ type Keybindings struct {
 	Refresh         string `yaml:"refresh"`
 	Search          string `yaml:"search"`
 	Describe        string `yaml:"describe"`
-	Logs            string `yaml:"logs"`
-	LogsFollow      string `yaml:"logs_follow"`
-	Delete          string `yaml:"delete"`
+	Logs   string `yaml:"logs"`
+	Delete string `yaml:"delete"`
 	Edit            string `yaml:"edit"`
 	Exec            string `yaml:"exec"`
 	PortForward     string `yaml:"port_forward"`

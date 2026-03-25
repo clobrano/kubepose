@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -454,11 +455,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Describe selected resource(s)
 			return m, m.startLoading(m.describeResources())
 		case "L":
-			// View logs (for pods)
-			return m, m.startLoading(m.viewLogs(false))
-		case "ctrl+l":
-			// Follow logs (for pods)
-			return m, m.viewLogs(true)
+			// View logs (for pods) - show selector with log options
+			return m, m.startLoading(m.viewLogs())
 		case "D":
 			// Delete selected resource(s) - show confirmation
 			return m, m.confirmDelete()
@@ -548,6 +546,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetSize(m.width, m.height-2)
 
 	case LogsFollowMsg:
+		if msg.NewShell {
+			// Launch follow logs in a new terminal shell (non-blocking)
+			cmd := makeKubectlLogsFollowCmd(m.kubectl.BinaryPath(), msg.PodName, msg.Namespace, msg.Container)
+			launchInNewShell(cmd.Args)
+			return m, nil
+		}
 		return m, tea.ExecProcess(
 			makeKubectlLogsFollowCmd(m.kubectl.BinaryPath(), msg.PodName, msg.Namespace, msg.Container),
 			func(err error) tea.Msg {
@@ -559,12 +563,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.pendingNames = []string{msg.PodName}
 		m.pendingNs = msg.Namespace
-		if msg.Follow {
-			m.pendingAction = "container-logs-follow"
-		} else {
-			m.pendingAction = "container-logs"
+		m.pendingAction = "log-options"
+
+		// Build log option entries: for each container, add a plain log
+		// and a --follow variant, sorted alphabetically.
+		var items []string
+		for _, c := range msg.Containers {
+			items = append(items, fmt.Sprintf("log %s", c))
+			items = append(items, fmt.Sprintf("log %s --follow", c))
 		}
-		m.selector = dialog.NewSelector("Select Container", msg.Containers)
+		sort.Strings(items)
+
+		m.selector = dialog.NewSelector("Select", items)
 		m.selector.SetSize(m.width, m.height)
 		m.viewState = ViewSelector
 
@@ -890,8 +900,10 @@ func isPodResource(resourceType string) bool {
 	return resourceType == "pods" || resourceType == "pod" || resourceType == "po"
 }
 
-// viewLogs returns a command to view logs for the selected pod
-func (m *Model) viewLogs(follow bool) tea.Cmd {
+// viewLogs returns a command to view logs for the selected pod.
+// It always fetches containers and shows a selector popup with
+// "log <container>" and "log <container> --follow" entries.
+func (m *Model) viewLogs() tea.Cmd {
 	return func() tea.Msg {
 		resourceType := m.getCurrentResourceType()
 
@@ -909,49 +921,16 @@ func (m *Model) viewLogs(follow bool) tea.Cmd {
 		podName := names[0]
 		ctx := actions.NewContext(m.kubectl, "pod", []string{podName}, namespace)
 
-		// Get container list to check if we need selection
+		// Get container list
 		containers, err := actions.GetContainers(ctx)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
 
-		// If multiple containers, show a selector dialog
-		if len(containers) > 1 {
-			return ContainersLoadedMsg{
-				PodName:    podName,
-				Namespace:  namespace,
-				Containers: containers,
-				Follow:     follow,
-			}
-		}
-
-		container := ""
-		if len(containers) == 1 {
-			container = containers[0]
-		}
-
-		if follow {
-			return LogsFollowMsg{
-				PodName:   podName,
-				Namespace: namespace,
-				Container: container,
-			}
-		}
-
-		opts := actions.LogsOptions{
-			Container: container,
-			TailLines: 500,
-		}
-
-		content, err := actions.Logs(ctx, opts)
-		if err != nil {
-			return ErrorMsg{Err: err}
-		}
-
-		return LogsLoadedMsg{
-			PodName:   podName,
-			Container: container,
-			Content:   content,
+		return ContainersLoadedMsg{
+			PodName:    podName,
+			Namespace:  namespace,
+			Containers: containers,
 		}
 	}
 }
@@ -1102,6 +1081,36 @@ func makeKubectlExecCmd(kubectlBin, podName, namespace, container string) *exec.
 	return cmd
 }
 
+// launchInNewShell opens a command in a new terminal window.
+// It tries common terminal emulators in order of preference.
+func launchInNewShell(args []string) {
+	shellCmd := strings.Join(args, " ")
+
+	// Try common terminal emulators
+	terminals := []struct {
+		bin  string
+		args []string
+	}{
+		{"x-terminal-emulator", []string{"-e", "sh", "-c", shellCmd}},
+		{"gnome-terminal", []string{"--", "sh", "-c", shellCmd}},
+		{"konsole", []string{"-e", "sh", "-c", shellCmd}},
+		{"xfce4-terminal", []string{"-e", shellCmd}},
+		{"xterm", []string{"-e", shellCmd}},
+		{"open", []string{"-a", "Terminal", "--args", shellCmd}}, // macOS
+	}
+
+	for _, t := range terminals {
+		if path, err := exec.LookPath(t.bin); err == nil {
+			cmd := exec.Command(path, t.args...)
+			cmd.Stdout = nil
+			cmd.Stderr = nil
+			cmd.Stdin = nil
+			_ = cmd.Start()
+			return
+		}
+	}
+}
+
 // makeKubectlLogsFollowCmd creates an exec.Cmd for kubectl logs -f
 func makeKubectlLogsFollowCmd(kubectlBin, podName, namespace, container string) *exec.Cmd {
 	args := []string{"logs", "-f", podName}
@@ -1161,12 +1170,12 @@ func (m *Model) handleSelectorResult() tea.Cmd {
 	m.selector = nil
 
 	switch action {
-	case "container-logs":
-		// Use selected container for logs
-		return m.viewLogsWithContainer(selected, false)
-	case "container-logs-follow":
-		// Use selected container for follow logs
-		return m.viewLogsWithContainer(selected, true)
+	case "log-options":
+		// Parse "log <container>" or "log <container> --follow"
+		follow := strings.HasSuffix(selected, " --follow")
+		container := strings.TrimPrefix(selected, "log ")
+		container = strings.TrimSuffix(container, " --follow")
+		return m.viewLogsWithContainer(container, follow)
 	case "container-exec":
 		// Use selected container for exec
 		return m.execWithContainer(selected)
@@ -1183,6 +1192,7 @@ func (m *Model) handleSelectorResult() tea.Cmd {
 
 // viewLogsWithContainer views logs for a specific container
 func (m *Model) viewLogsWithContainer(container string, follow bool) tea.Cmd {
+	newShell := m.config.LogsFollowInNewShell
 	return func() tea.Msg {
 		if len(m.pendingNames) == 0 {
 			return nil
@@ -1199,6 +1209,7 @@ func (m *Model) viewLogsWithContainer(container string, follow bool) tea.Cmd {
 				PodName:   podName,
 				Namespace: namespace,
 				Container: container,
+				NewShell:  newShell,
 			}
 		}
 

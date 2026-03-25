@@ -47,7 +47,6 @@ type ContainersLoadedMsg struct {
 	PodName    string
 	Namespace  string
 	Containers []string
-	Follow     bool // true if this is for follow mode logs
 }
 
 // LogsLoadedMsg is sent when log output is loaded
@@ -59,9 +58,10 @@ type LogsLoadedMsg struct {
 
 // LogsFollowMsg is sent to request streaming logs via kubectl logs -f
 type LogsFollowMsg struct {
-	PodName   string
-	Namespace string
-	Container string
+	PodName    string
+	Namespace  string
+	Container  string
+	NewShell   bool // if true, open in a new terminal shell instead of suspending the TUI
 }
 
 // ExecRequestMsg is sent to request exec into a container
