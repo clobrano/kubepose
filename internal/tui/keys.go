@@ -17,10 +17,9 @@ type KeyMap struct {
 	Down            key.Binding
 	TabNext         key.Binding
 	TabPrev         key.Binding
-	Describe        key.Binding
-	Logs            key.Binding
-	LogsFollow      key.Binding
-	Delete          key.Binding
+	Describe key.Binding
+	Logs     key.Binding
+	Delete   key.Binding
 	Edit            key.Binding
 	Exec            key.Binding
 	PortForward     key.Binding
@@ -83,10 +82,6 @@ func NewKeyMap(cfg config.Keybindings) *KeyMap {
 		Logs: key.NewBinding(
 			key.WithKeys(cfg.Logs),
 			key.WithHelp(cfg.Logs, "logs"),
-		),
-		LogsFollow: key.NewBinding(
-			key.WithKeys(cfg.LogsFollow),
-			key.WithHelp(cfg.LogsFollow, "logs -f"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys(cfg.Delete),

@@ -5,18 +5,18 @@ import "time"
 // DefaultConfig returns a Config with sensible default values
 func DefaultConfig() *Config {
 	return &Config{
-		KubectlBin:      "kubectl",
-		Pager:           "less",
-		RefreshInterval: 5 * time.Second,
+		KubectlBin:           "kubectl",
+		Pager:                "less",
+		RefreshInterval:      5 * time.Second,
+		LogsFollowInNewShell: true,
 		Keybindings: Keybindings{
 			Quit:            "q",
 			Help:            "?",
 			Refresh:         "r",
 			Search:          "/",
 			Describe:        "d",
-			Logs:            "L",
-			LogsFollow:      "ctrl+l",
-			Delete:          "D",
+			Logs:   "L",
+			Delete: "D",
 			Edit:            "e",
 			Exec:            "x",
 			PortForward:     "p",
