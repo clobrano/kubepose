@@ -73,3 +73,6 @@ type ExecRequestMsg struct {
 
 // TickMsg is sent periodically to trigger auto-refresh
 type TickMsg struct{}
+
+// SubTickMsg is sent every second to update the refresh countdown display
+type SubTickMsg struct{}

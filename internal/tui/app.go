@@ -143,6 +143,9 @@ type Model struct {
 
 	// Error state
 	lastError error
+
+	// Refresh timing
+	lastRefreshTime time.Time
 }
 
 // NewModel creates a new application model
@@ -191,12 +194,26 @@ func (m *Model) tickCmd() tea.Cmd {
 	})
 }
 
+// subTickCmd returns a command that sends a SubTickMsg every second to update the countdown display.
+func (m *Model) subTickCmd() tea.Cmd {
+	if m.config.RefreshInterval <= 0 {
+		return nil
+	}
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return SubTickMsg{}
+	})
+}
+
 // Init returns the initial command to run when the program starts
 func (m *Model) Init() tea.Cmd {
+	m.lastRefreshTime = time.Now()
+	m.header.SetRefreshInterval(m.config.RefreshInterval)
+	m.header.SetRefreshRemaining(m.config.RefreshInterval)
 	return tea.Batch(
 		m.loadContext(),
 		m.loadResources(),
 		m.tickCmd(),
+		m.subTickCmd(),
 		m.spinner.Tick,
 	)
 }
@@ -219,9 +236,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle countdown sub-tick: update remaining time display every second.
+	if _, ok := msg.(SubTickMsg); ok {
+		remaining := m.config.RefreshInterval - time.Since(m.lastRefreshTime)
+		m.header.SetRefreshRemaining(remaining)
+		return m, m.subTickCmd()
+	}
+
 	// Handle auto-refresh tick: always reschedule, but only refresh in list view
 	// when the user is not actively typing a filter.
 	if _, ok := msg.(TickMsg); ok {
+		m.lastRefreshTime = time.Now()
+		m.header.SetRefreshRemaining(m.config.RefreshInterval)
 		next := m.tickCmd()
 		if m.viewState == ViewList && !m.search.IsActive() {
 			return m, tea.Batch(m.loadResources(), next)
