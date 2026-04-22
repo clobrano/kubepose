@@ -3,16 +3,19 @@ package header
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 // Model represents the header component
 type Model struct {
-	context   string
-	namespace string
-	width     int
-	styles    *Styles
+	context          string
+	namespace        string
+	width            int
+	styles           *Styles
+	refreshInterval  time.Duration
+	refreshRemaining time.Duration
 }
 
 // Styles defines the styles for the header component
@@ -20,6 +23,7 @@ type Styles struct {
 	Container lipgloss.Style
 	Context   lipgloss.Style
 	Namespace lipgloss.Style
+	Refresh   lipgloss.Style
 	Help      lipgloss.Style
 	Separator lipgloss.Style
 }
@@ -35,6 +39,8 @@ func DefaultStyles() *Styles {
 			Bold(true),
 		Namespace: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("212")),
+		Refresh: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("148")),
 		Help: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")),
 		Separator: lipgloss.NewStyle().
@@ -65,6 +71,19 @@ func (m *Model) SetNamespace(namespace string) {
 // SetWidth updates the header width for responsive layout
 func (m *Model) SetWidth(width int) {
 	m.width = width
+}
+
+// SetRefreshInterval sets the configured refresh interval
+func (m *Model) SetRefreshInterval(d time.Duration) {
+	m.refreshInterval = d
+}
+
+// SetRefreshRemaining sets the time remaining until the next refresh
+func (m *Model) SetRefreshRemaining(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	m.refreshRemaining = d
 }
 
 // Context returns the current context
@@ -100,7 +119,18 @@ func (m *Model) View() string {
 		ns += m.styles.Namespace.Render("default")
 	}
 
-	left := ctx + sep + ns
+	refresh := ""
+	if m.refreshInterval > 0 {
+		intervalSec := int(m.refreshInterval.Seconds())
+		refreshStr := fmt.Sprintf("%ds", intervalSec)
+		if m.refreshRemaining > 10*time.Second {
+			remainingSec := int(m.refreshRemaining.Seconds())
+			refreshStr = fmt.Sprintf("%ds (%ds)", intervalSec, remainingSec)
+		}
+		refresh = sep + "Refresh: " + m.styles.Refresh.Render(refreshStr)
+	}
+
+	left := ctx + sep + ns + refresh
 
 	// Right side: Help indicator
 	right := m.styles.Help.Render("[?] Help")
