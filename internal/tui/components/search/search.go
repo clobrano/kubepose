@@ -126,6 +126,16 @@ func (m *Model) Query() string {
 	return m.input.Value()
 }
 
+// HasSuggestion returns true when an autosuggestion is available.
+func (m *Model) HasSuggestion() bool {
+	return m.suggestion != ""
+}
+
+// HistoryLen returns the number of entries in the filter history.
+func (m *Model) HistoryLen() int {
+	return len(m.history)
+}
+
 // addToHistory adds a confirmed query to the history, skipping empty or duplicate entries.
 func (m *Model) addToHistory(query string) {
 	if query == "" {
