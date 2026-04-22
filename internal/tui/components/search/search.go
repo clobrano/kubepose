@@ -229,6 +229,13 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				m.historyIndex = -1
 			}
 			return m, nil
+
+		case "left", "right", "ctrl+a", "ctrl+e", "ctrl+b", "ctrl+f", "home", "end":
+			// Cursor movement clears the suggestion so the block cursor stays accurate.
+			m.suggestion = ""
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
 		}
 	}
 
@@ -243,6 +250,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	return m, cmd
 }
 
+// SuggestionFull returns the complete string that Tab would fill in,
+// or empty string when no suggestion is available.
+func (m *Model) SuggestionFull() string {
+	if m.suggestion == "" {
+		return ""
+	}
+	return m.input.Value() + m.suggestion
+}
+
 // View renders the search input
 func (m *Model) View() string {
 	if !m.active && !m.IsFiltered() {
@@ -250,14 +266,17 @@ func (m *Model) View() string {
 	}
 
 	prompt := m.styles.Prompt.Render("/ ")
-	input := m.input.View()
 
 	if m.active && m.suggestion != "" {
-		suggestion := m.styles.Suggestion.Render(m.suggestion)
-		return m.styles.Container.Render(prompt + input + suggestion)
+		// textinput.View() pads to its configured width with spaces, which would
+		// push the ghost text far to the right. Render manually instead: value
+		// text + block cursor + dim suggestion suffix, all inline.
+		cursor := lipgloss.NewStyle().Reverse(true).Render(" ")
+		ghost := m.styles.Suggestion.Render(m.suggestion)
+		return m.styles.Container.Render(prompt + m.input.Value() + cursor + ghost)
 	}
 
-	return m.styles.Container.Render(prompt + input)
+	return m.styles.Container.Render(prompt + m.input.View())
 }
 
 // RestoreFilter re-applies a previously saved filter query without entering

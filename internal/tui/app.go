@@ -679,7 +679,7 @@ func (m *Model) View() string {
 			hint += "  [↑↓] history"
 		}
 		if m.search.HasSuggestion() {
-			hint += "  [Tab] accept suggestion"
+			hint += "  [Tab] → " + m.search.SuggestionFull()
 		}
 		b.WriteString(hint)
 	} else if m.search.IsFiltered() {
