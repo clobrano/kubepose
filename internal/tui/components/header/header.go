@@ -122,8 +122,12 @@ func (m *Model) View() string {
 	refresh := ""
 	if m.refreshInterval > 0 {
 		intervalSec := int(m.refreshInterval.Seconds())
-		remainingSec := int(m.refreshRemaining.Seconds())
-		refresh = sep + "Refresh: " + m.styles.Refresh.Render(fmt.Sprintf("%ds (%ds)", intervalSec, remainingSec))
+		refreshStr := fmt.Sprintf("%ds", intervalSec)
+		if m.refreshRemaining > 10*time.Second {
+			remainingSec := int(m.refreshRemaining.Seconds())
+			refreshStr = fmt.Sprintf("%ds (%ds)", intervalSec, remainingSec)
+		}
+		refresh = sep + "Refresh: " + m.styles.Refresh.Render(refreshStr)
 	}
 
 	left := ctx + sep + ns + refresh
