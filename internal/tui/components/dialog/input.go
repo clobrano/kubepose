@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -30,14 +29,21 @@ type InputModel struct {
 	height      int
 	styles      *InputStyles
 	actionID    string
+
+	// History navigation
+	history      []string // oldest → newest
+	historyIndex int      // -1 = editing draft, 0..n-1 = position in history
+	draft        string   // saved draft before navigating history
+	suggestion   string   // autosuggestion suffix from history
 }
 
 // InputStyles defines the styles for the input dialog
 type InputStyles struct {
-	Dialog  lipgloss.Style
-	Title   lipgloss.Style
-	Input   lipgloss.Style
-	Hint    lipgloss.Style
+	Dialog     lipgloss.Style
+	Title      lipgloss.Style
+	Input      lipgloss.Style
+	Hint       lipgloss.Style
+	Suggestion lipgloss.Style
 }
 
 // DefaultInputStyles returns the default input styles
@@ -54,6 +60,8 @@ func DefaultInputStyles() *InputStyles {
 			Foreground(lipgloss.Color("252")),
 		Hint: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")),
+		Suggestion: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")),
 	}
 }
 
@@ -66,11 +74,12 @@ func NewInput(title, placeholder string) *InputModel {
 	ti.Width = 30
 
 	return &InputModel{
-		title:       title,
-		placeholder: placeholder,
-		textInput:   ti,
-		result:      InputPending,
-		styles:      DefaultInputStyles(),
+		title:        title,
+		placeholder:  placeholder,
+		textInput:    ti,
+		result:       InputPending,
+		styles:       DefaultInputStyles(),
+		historyIndex: -1,
 	}
 }
 
@@ -96,6 +105,10 @@ func (m *InputModel) WithValue(value string) *InputModel {
 func (m *InputModel) SetValue(value string) {
 	m.textInput.SetValue(value)
 	m.textInput.CursorEnd()
+	m.historyIndex = -1
+	m.draft = ""
+	m.suggestion = ""
+	m.computeSuggestion(value)
 }
 
 // SetSize sets the dialog dimensions and adjusts the input width to 70% of available space
@@ -129,6 +142,51 @@ func (m *InputModel) Reset() {
 	m.result = InputPending
 	m.textInput.SetValue("")
 	m.textInput.Focus()
+	m.historyIndex = -1
+	m.draft = ""
+	m.suggestion = ""
+}
+
+// HasSuggestion returns true when an autosuggestion is available.
+func (m *InputModel) HasSuggestion() bool {
+	return m.suggestion != ""
+}
+
+// SuggestionFull returns the complete string that Tab would fill in.
+func (m *InputModel) SuggestionFull() string {
+	if m.suggestion == "" {
+		return ""
+	}
+	return m.textInput.Value() + m.suggestion
+}
+
+// HistoryLen returns the number of entries in the command history.
+func (m *InputModel) HistoryLen() int {
+	return len(m.history)
+}
+
+func (m *InputModel) addToHistory(value string) {
+	if value == "" {
+		return
+	}
+	if len(m.history) > 0 && m.history[len(m.history)-1] == value {
+		return
+	}
+	m.history = append(m.history, value)
+}
+
+func (m *InputModel) computeSuggestion(input string) {
+	if input == "" {
+		m.suggestion = ""
+		return
+	}
+	for i := len(m.history) - 1; i >= 0; i-- {
+		if strings.HasPrefix(m.history[i], input) && m.history[i] != input {
+			m.suggestion = m.history[i][len(input):]
+			return
+		}
+	}
+	m.suggestion = ""
 }
 
 // Update handles messages
@@ -137,17 +195,80 @@ func (m *InputModel) Update(msg tea.Msg) (*InputModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
+		switch msg.String() {
+		case "enter":
+			if m.textInput.Value() != "" {
+				m.addToHistory(m.textInput.Value())
+			}
 			m.result = InputSubmitted
+			m.historyIndex = -1
+			m.draft = ""
+			m.suggestion = ""
 			return m, nil
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
+
+		case "esc":
 			m.result = InputCancelled
+			m.historyIndex = -1
+			m.draft = ""
+			m.suggestion = ""
 			return m, nil
+
+		case "up":
+			if len(m.history) == 0 {
+				return m, nil
+			}
+			if m.historyIndex == -1 {
+				m.draft = m.textInput.Value()
+				m.historyIndex = len(m.history) - 1
+			} else if m.historyIndex > 0 {
+				m.historyIndex--
+			}
+			val := m.history[m.historyIndex]
+			m.textInput.SetValue(val)
+			m.textInput.CursorEnd()
+			m.suggestion = ""
+			return m, nil
+
+		case "down":
+			if m.historyIndex == -1 {
+				return m, nil
+			}
+			if m.historyIndex < len(m.history)-1 {
+				m.historyIndex++
+				val := m.history[m.historyIndex]
+				m.textInput.SetValue(val)
+				m.textInput.CursorEnd()
+			} else {
+				m.historyIndex = -1
+				m.textInput.SetValue(m.draft)
+				m.textInput.CursorEnd()
+				m.computeSuggestion(m.draft)
+			}
+			m.suggestion = ""
+			return m, nil
+
+		case "tab":
+			if m.suggestion != "" {
+				full := m.textInput.Value() + m.suggestion
+				m.textInput.SetValue(full)
+				m.textInput.CursorEnd()
+				m.suggestion = ""
+				m.historyIndex = -1
+			}
+			return m, nil
+
+		case "left", "right", "ctrl+a", "ctrl+e", "ctrl+b", "ctrl+f", "home", "end":
+			m.suggestion = ""
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
 		}
 	}
 
 	m.textInput, cmd = m.textInput.Update(msg)
+	if _, ok := msg.(tea.KeyMsg); ok {
+		m.historyIndex = -1
+		m.computeSuggestion(m.textInput.Value())
+	}
 	return m, cmd
 }
 
@@ -166,12 +287,27 @@ func (m *InputModel) View() string {
 	}
 	b.WriteString("\n")
 
-	// Input field
-	b.WriteString(m.textInput.View())
+	// Input field with optional inline ghost text
+	if m.suggestion != "" {
+		// textinput.View() pads to its full width; render manually to keep the
+		// ghost text adjacent to the cursor.
+		cursor := lipgloss.NewStyle().Reverse(true).Render(" ")
+		ghost := m.styles.Suggestion.Render(m.suggestion)
+		b.WriteString(m.textInput.Value() + cursor + ghost)
+	} else {
+		b.WriteString(m.textInput.View())
+	}
 	b.WriteString("\n\n")
 
-	// Key hints
-	b.WriteString(m.styles.Hint.Render("[Enter] submit  [Esc] cancel"))
+	// Dynamic key hints
+	hints := "[Enter] submit  [Esc] cancel"
+	if len(m.history) > 0 {
+		hints += "  [↑↓] history"
+	}
+	if m.suggestion != "" {
+		hints += "  [Tab] → " + m.SuggestionFull()
+	}
+	b.WriteString(m.styles.Hint.Render(hints))
 
 	// Use 70% of terminal width for the dialog
 	dialogWidth := m.width * 70 / 100

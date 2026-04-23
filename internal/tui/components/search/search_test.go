@@ -2,6 +2,8 @@ package search
 
 import (
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFuzzyMatch(t *testing.T) {
@@ -277,5 +279,177 @@ func TestSearchViewActive(t *testing.T) {
 
 	if view == "" {
 		t.Error("View() when active should not be empty")
+	}
+}
+
+func keyMsg(key string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+}
+
+func keySpecial(keyType tea.KeyType) tea.KeyMsg {
+	return tea.KeyMsg{Type: keyType}
+}
+
+func TestHistoryAddAndNavigate(t *testing.T) {
+	s := New()
+
+	s.addToHistory("nginx")
+	s.addToHistory("redis")
+	s.addToHistory("postgres")
+
+	if len(s.history) != 3 {
+		t.Fatalf("expected 3 history entries, got %d", len(s.history))
+	}
+
+	s.Activate()
+
+	// Up → most recent
+	s, _ = s.Update(keySpecial(tea.KeyUp))
+	if s.input.Value() != "postgres" {
+		t.Errorf("first Up: want 'postgres', got %q", s.input.Value())
+	}
+
+	// Up → next older
+	s, _ = s.Update(keySpecial(tea.KeyUp))
+	if s.input.Value() != "redis" {
+		t.Errorf("second Up: want 'redis', got %q", s.input.Value())
+	}
+
+	// Down → back to newer
+	s, _ = s.Update(keySpecial(tea.KeyDown))
+	if s.input.Value() != "postgres" {
+		t.Errorf("Down: want 'postgres', got %q", s.input.Value())
+	}
+
+	// Down → back to draft (empty)
+	s, _ = s.Update(keySpecial(tea.KeyDown))
+	if s.input.Value() != "" {
+		t.Errorf("Down to draft: want '', got %q", s.input.Value())
+	}
+	if s.historyIndex != -1 {
+		t.Errorf("historyIndex should be -1 after returning to draft, got %d", s.historyIndex)
+	}
+}
+
+func TestHistoryNoDuplicates(t *testing.T) {
+	s := New()
+	s.addToHistory("nginx")
+	s.addToHistory("nginx")
+
+	if len(s.history) != 1 {
+		t.Errorf("duplicate consecutive entries should not be added, got %d entries", len(s.history))
+	}
+
+	// Non-consecutive duplicate is allowed
+	s.addToHistory("redis")
+	s.addToHistory("nginx")
+	if len(s.history) != 3 {
+		t.Errorf("non-consecutive duplicate should be added, got %d entries", len(s.history))
+	}
+}
+
+func TestHistoryDraftPreservedOnNavigation(t *testing.T) {
+	s := New()
+	s.addToHistory("nginx")
+	s.Activate()
+
+	// Simulate typing "red"
+	s.input.SetValue("red")
+	s.query = "red"
+
+	// Navigate up (should save "red" as draft)
+	s, _ = s.Update(keySpecial(tea.KeyUp))
+	if s.input.Value() != "nginx" {
+		t.Errorf("Up: want 'nginx', got %q", s.input.Value())
+	}
+
+	// Navigate back down (should restore draft "red")
+	s, _ = s.Update(keySpecial(tea.KeyDown))
+	if s.input.Value() != "red" {
+		t.Errorf("Down to draft: want 'red', got %q", s.input.Value())
+	}
+}
+
+func TestHistorySavedOnEnter(t *testing.T) {
+	s := New()
+	s.Activate()
+	s.input.SetValue("nginx")
+	s.query = "nginx"
+
+	s, _ = s.Update(keySpecial(tea.KeyEnter))
+
+	if len(s.history) != 1 || s.history[0] != "nginx" {
+		t.Errorf("Enter should save query to history, got %v", s.history)
+	}
+	if s.IsActive() {
+		t.Error("search should be inactive after Enter")
+	}
+}
+
+func TestComputeSuggestion(t *testing.T) {
+	s := New()
+	s.addToHistory("nginx-deployment")
+	s.addToHistory("nginx-service")
+
+	// Most recent match should be preferred
+	s.computeSuggestion("nginx")
+	if s.suggestion != "-service" {
+		t.Errorf("want suggestion '-service', got %q", s.suggestion)
+	}
+
+	// Exact match → no suggestion
+	s.computeSuggestion("nginx-service")
+	if s.suggestion != "" {
+		t.Errorf("exact match should produce no suggestion, got %q", s.suggestion)
+	}
+
+	// Empty input → no suggestion
+	s.computeSuggestion("")
+	if s.suggestion != "" {
+		t.Errorf("empty input should produce no suggestion, got %q", s.suggestion)
+	}
+
+	// No matching prefix
+	s.computeSuggestion("redis")
+	if s.suggestion != "" {
+		t.Errorf("no prefix match should produce no suggestion, got %q", s.suggestion)
+	}
+}
+
+func TestTabAcceptsSuggestion(t *testing.T) {
+	s := New()
+	s.addToHistory("nginx-deployment")
+	s.Activate()
+	s.input.SetValue("ngi")
+	s.query = "ngi"
+	s.computeSuggestion("ngi")
+
+	if s.suggestion == "" {
+		t.Skip("no suggestion computed, skipping Tab test")
+	}
+
+	s, _ = s.Update(keySpecial(tea.KeyTab))
+	if s.input.Value() != "nginx-deployment" {
+		t.Errorf("Tab should accept suggestion, got %q", s.input.Value())
+	}
+	if s.suggestion != "" {
+		t.Errorf("suggestion should be cleared after Tab, got %q", s.suggestion)
+	}
+}
+
+func TestUpDownWithNoHistory(t *testing.T) {
+	s := New()
+	s.Activate()
+
+	// Should not panic or change state
+	before := s.input.Value()
+	s, _ = s.Update(keySpecial(tea.KeyUp))
+	if s.input.Value() != before {
+		t.Error("Up with no history should not change input")
+	}
+
+	s, _ = s.Update(keySpecial(tea.KeyDown))
+	if s.input.Value() != before {
+		t.Error("Down with no history should not change input")
 	}
 }

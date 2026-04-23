@@ -674,7 +674,14 @@ func (m *Model) View() string {
 	if m.loading {
 		b.WriteString(m.spinner.View() + " Loading...")
 	} else if m.search.IsActive() {
-		b.WriteString("[Enter] confirm  [Esc] cancel  [Type] to filter")
+		hint := "[Enter] confirm  [Esc] cancel"
+		if m.search.HistoryLen() > 0 {
+			hint += "  [↑↓] history"
+		}
+		if m.search.HasSuggestion() {
+			hint += "  [Tab] → " + m.search.SuggestionFull()
+		}
+		b.WriteString(hint)
 	} else if m.search.IsFiltered() {
 		b.WriteString("[Esc] clear filter  [/] modify filter  [d]escribe [L]ogs [D]elete [e]dit [x]exec")
 	} else if m.currentTab == SearchTabIndex {
