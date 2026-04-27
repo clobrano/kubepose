@@ -1,7 +1,7 @@
 package actions
 
 import (
-	"github.com/clobrano/kubepose/internal/kubectl"
+	"github.com/clobrano/telekube/internal/kubectl"
 )
 
 // ActionContext contains the context for executing an action

@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/clobrano/kubepose/internal/tui/components/search"
+	"github.com/clobrano/telekube/internal/tui/components/search"
 )
 
 // SelectorResult represents the result of a selector dialog

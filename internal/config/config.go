@@ -10,13 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultConfigPath returns the default config file path (~/.config/kubepose/config.yaml)
+// DefaultConfigPath returns the default config file path (~/.config/telekube/config.yaml)
 func DefaultConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "kubepose", "config.yaml"), nil
+	return filepath.Join(home, ".config", "telekube", "config.yaml"), nil
 }
 
 // Config represents the main configuration for KubePose

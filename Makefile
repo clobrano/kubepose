@@ -1,6 +1,6 @@
 .PHONY: build run test test-coverage lint clean release-snapshot install
 
-BINARY_NAME=kubepose
+BINARY_NAME=telekube
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 build:

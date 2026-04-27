@@ -1,4 +1,4 @@
-# kubepose
+# telekube
 
 A terminal UI for exploring and managing Kubernetes clusters. Browse resources, inspect details, and perform common kubectl operations through an interactive keyboard-driven interface.
 
@@ -17,14 +17,14 @@ A terminal UI for exploring and managing Kubernetes clusters. Browse resources, 
 ## Installation
 
 ```bash
-go install github.com/clobrano/kubepose@latest
+go install github.com/clobrano/telekube@latest
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/clobrano/kubepose.git
-cd kubepose
+git clone https://github.com/clobrano/telekube.git
+cd telekube
 make install
 ```
 
@@ -36,10 +36,10 @@ make install
 ## Usage
 
 ```bash
-kubepose
+telekube
 ```
 
-On first run, a default configuration file is created at `~/.config/kubepose/config.yaml`.
+On first run, a default configuration file is created at `~/.config/telekube/config.yaml`.
 
 ## Search Tab
 
@@ -155,7 +155,7 @@ When viewing resource details (`Enter`, `Y`, or `J`), use these keys to navigate
 
 ## Configuration
 
-Edit `~/.config/kubepose/config.yaml` to customize:
+Edit `~/.config/telekube/config.yaml` to customize:
 
 ```yaml
 # Path to kubectl binary
@@ -214,7 +214,7 @@ make build
 make test
 
 # Run with race detector
-make build && ./kubepose
+make build && ./telekube
 
 # Install locally
 make install

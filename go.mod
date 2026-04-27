@@ -1,4 +1,4 @@
-module github.com/clobrano/kubepose
+module github.com/clobrano/telekube
 
 go 1.24.7
 
