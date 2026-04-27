@@ -249,7 +249,7 @@ func TestEnsureConfigExists(t *testing.T) {
 		t.Fatalf("EnsureConfigExists failed: %v", err)
 	}
 
-	expectedPath := filepath.Join(tmpDir, ".config", "kubepose", "config.yaml")
+	expectedPath := filepath.Join(tmpDir, ".config", "telekube", "config.yaml")
 	if path != expectedPath {
 		t.Errorf("expected path '%s', got '%s'", expectedPath, path)
 	}

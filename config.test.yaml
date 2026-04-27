@@ -1,0 +1,8 @@
+kubectl_bin: kubectl
+pager: less
+tabs:
+    - name: Nodes
+      command: get nodes -o wide
+    - name: RHWA
+      command: get pods -n openshift-workload-availability
+custom_commands: []

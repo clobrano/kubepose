@@ -5,9 +5,9 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/clobrano/kubepose/internal/config"
-	"github.com/clobrano/kubepose/internal/kubectl"
-	"github.com/clobrano/kubepose/internal/tui"
+	"github.com/clobrano/telekube/internal/config"
+	"github.com/clobrano/telekube/internal/kubectl"
+	"github.com/clobrano/telekube/internal/tui"
 )
 
 // Version information set by ldflags
@@ -24,7 +24,7 @@ func main() {
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
 		case "--version", "-v":
-			fmt.Printf("kubepose %s (commit: %s, built: %s)\n", version, commit, date)
+			fmt.Printf("telekube %s (commit: %s, built: %s)\n", version, commit, date)
 			os.Exit(0)
 		case "--config", "-c":
 			if i+1 >= len(os.Args) {
@@ -34,15 +34,15 @@ func main() {
 			customConfigPath = os.Args[i+1]
 			i++ // skip next arg
 		case "--help", "-h":
-			fmt.Println("Usage: kubepose [flags]")
+			fmt.Println("Usage: telekube [flags]")
 			fmt.Println()
 			fmt.Println("Flags:")
-			fmt.Println("  -c, --config <path>   Path to config.yaml (default: ~/.config/kubepose/config.yaml)")
+			fmt.Println("  -c, --config <path>   Path to config.yaml (default: ~/.config/telekube/config.yaml)")
 			fmt.Println("  -v, --version          Show version information")
 			fmt.Println("  -h, --help             Show this help message")
 			os.Exit(0)
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag: %s\nRun 'kubepose --help' for usage.\n", os.Args[i])
+			fmt.Fprintf(os.Stderr, "Unknown flag: %s\nRun 'telekube --help' for usage.\n", os.Args[i])
 			os.Exit(1)
 		}
 	}

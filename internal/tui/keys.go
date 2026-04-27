@@ -2,7 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/clobrano/kubepose/internal/config"
+	"github.com/clobrano/telekube/internal/config"
 )
 
 // KeyMap defines all keybindings for the application

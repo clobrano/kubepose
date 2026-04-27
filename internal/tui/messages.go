@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/clobrano/kubepose/internal/kubectl"
+	"github.com/clobrano/telekube/internal/kubectl"
 )
 
 // ContextLoadedMsg is sent when the kubectl context info is loaded
