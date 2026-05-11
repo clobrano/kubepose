@@ -766,6 +766,9 @@ func (m *Model) loadResources() tea.Cmd {
 		}
 
 		data := kubectl.ParseTableOutput(output)
+		if tab.SortBy != "" {
+			data.Sort(tab.SortBy, tab.SortReverse)
+		}
 		return ResourcesLoadedMsg{Data: data}
 	}
 }
