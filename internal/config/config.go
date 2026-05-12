@@ -32,8 +32,10 @@ type Config struct {
 
 // TabConfig represents the configuration for a single tab
 type TabConfig struct {
-	Name    string `yaml:"name"`
-	Command string `yaml:"command"`
+	Name        string `yaml:"name"`
+	Command     string `yaml:"command"`
+	SortBy      string `yaml:"sort_by,omitempty"`     // column name or "creation_time" (uses AGE column)
+	SortReverse bool   `yaml:"sort_reverse,omitempty"` // reverse the sort order
 }
 
 // CustomCommand represents a user-defined custom command

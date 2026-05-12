@@ -98,6 +98,12 @@ func (m *Model) getCurrentResourceType() string {
 	return getResourceTypeFromCommand(m.getCurrentTabCommand())
 }
 
+// TabSortState holds runtime sort configuration for a single tab.
+type TabSortState struct {
+	SortBy      string
+	SortReverse bool
+}
+
 // Model is the main application model for the TUI
 type Model struct {
 	config  *config.Config
@@ -136,6 +142,11 @@ type Model struct {
 
 	// Per-tab search state: saves the last confirmed filter for each tab index
 	tabSearchStates map[int]string
+
+	// Per-tab runtime sort state (set via the 's' shortcut; overrides config sort)
+	tabRuntimeSorts map[int]TabSortState
+	// Maps sort option label → TabSortState for the currently open sort selector
+	sortOptionMap map[string]TabSortState
 
 	// Loading state
 	loading bool
@@ -179,6 +190,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		detail:          detail.New("", "", detail.FormatTable),
 		searchInput:     searchInput,
 		tabSearchStates: make(map[int]string),
+		tabRuntimeSorts: make(map[int]TabSortState),
 		loading:         true,
 		spinner:         s,
 	}
@@ -477,6 +489,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "A":
 			// Deselect all items
 			m.list.DeselectAll()
+		case "s":
+			// Open sort selector
+			m.openSortSelector()
+			return m, nil
 		case "d":
 			// Describe selected resource(s)
 			return m, m.startLoading(m.describeResources())
@@ -531,6 +547,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resources = msg.Data
 		m.lastError = nil
 		if msg.Data != nil {
+			m.applyTabSort(msg.Data)
 			if m.search.IsFiltered() {
 				// Refresh on same tab: re-apply the active filter to the new data
 				m.search.SetItems(msg.Data.Rows)
@@ -687,7 +704,7 @@ func (m *Model) View() string {
 	} else if m.currentTab == SearchTabIndex {
 		b.WriteString("[Enter] enter command  [/]filter results  [r]efresh  [q]uit")
 	} else {
-		b.WriteString("[d]escribe [L]ogs [Y]aml [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [/]search [r]efresh [?]help")
+		b.WriteString("[d]escribe [L]ogs [Y]aml [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [s]ort [/]search [r]efresh [?]help")
 	}
 
 	return b.String()
@@ -1161,6 +1178,95 @@ func makeKubectlLogsFollowCmd(kubectlBin, podName, namespace, container string) 
 	return cmd
 }
 
+// applyTabSort sorts data according to the effective sort state for the current
+// tab.  Runtime sort (set via 's') takes precedence over config-level sort.
+func (m *Model) applyTabSort(data *kubectl.TableData) {
+	if data == nil {
+		return
+	}
+
+	// Runtime sort overrides config sort
+	if rs, ok := m.tabRuntimeSorts[m.currentTab]; ok && rs.SortBy != "" {
+		data.Sort(rs.SortBy, rs.SortReverse)
+		return
+	}
+
+	// Fall back to config-level sort (config tabs only)
+	if m.currentTab != SearchTabIndex {
+		configIdx := m.currentTab - 1
+		if configIdx >= 0 && configIdx < len(m.config.Tabs) {
+			tab := m.config.Tabs[configIdx]
+			if tab.SortBy != "" {
+				data.Sort(tab.SortBy, tab.SortReverse)
+			}
+		}
+	}
+}
+
+// openSortSelector builds sort options from the current tab's headers and opens
+// the selector dialog.
+func (m *Model) openSortSelector() {
+	if m.resources == nil || len(m.resources.Headers) == 0 {
+		return
+	}
+
+	currentSort := m.tabRuntimeSorts[m.currentTab]
+	// Fall back to config sort as the "current" sort when no runtime override exists.
+	if currentSort.SortBy == "" && m.currentTab != SearchTabIndex {
+		configIdx := m.currentTab - 1
+		if configIdx >= 0 && configIdx < len(m.config.Tabs) {
+			tab := m.config.Tabs[configIdx]
+			currentSort = TabSortState{SortBy: tab.SortBy, SortReverse: tab.SortReverse}
+		}
+	}
+
+	isActive := func(by string, rev bool) bool {
+		return strings.EqualFold(currentSort.SortBy, by) && currentSort.SortReverse == rev
+	}
+	prefix := func(by string, rev bool) string {
+		if isActive(by, rev) {
+			return "● "
+		}
+		return "  "
+	}
+
+	optionMap := make(map[string]TabSortState)
+	var items []string
+
+	addOption := func(label, sortBy string, rev bool) {
+		optionMap[label] = TabSortState{SortBy: sortBy, SortReverse: rev}
+		items = append(items, label)
+	}
+
+	// Creation time is always available (uses AGE column when present).
+	hasAge := m.resources.GetColumnIndex("AGE") >= 0
+	if hasAge {
+		addOption(prefix("creation_time", false)+"creation_time · newest first", "creation_time", false)
+		addOption(prefix("creation_time", true)+"creation_time · oldest first", "creation_time", true)
+	}
+
+	// One ascending + descending entry per column (skip AGE – covered above).
+	for _, h := range m.resources.Headers {
+		if strings.EqualFold(h, "AGE") {
+			continue
+		}
+		addOption(prefix(h, false)+h+" · A→Z", h, false)
+		addOption(prefix(h, true)+h+" · Z→A", h, true)
+	}
+
+	// If no AGE column but creation_time was set, still offer it.
+	if !hasAge {
+		addOption(prefix("creation_time", false)+"creation_time · newest first", "creation_time", false)
+		addOption(prefix("creation_time", true)+"creation_time · oldest first", "creation_time", true)
+	}
+
+	m.sortOptionMap = optionMap
+	m.selector = dialog.NewSelector("Sort by", items)
+	m.selector.SetSize(m.width, m.height)
+	m.pendingAction = "sort"
+	m.viewState = ViewSelector
+}
+
 // rolloutRestart triggers a rollout restart
 func (m *Model) rolloutRestart() tea.Cmd {
 	return func() tea.Msg {
@@ -1203,6 +1309,20 @@ func (m *Model) handleSelectorResult() tea.Cmd {
 	m.selector = nil
 
 	switch action {
+	case "sort":
+		if state, ok := m.sortOptionMap[selected]; ok {
+			m.tabRuntimeSorts[m.currentTab] = state
+			if m.resources != nil {
+				m.applyTabSort(m.resources)
+				if m.search.IsFiltered() {
+					m.search.SetItems(m.resources.Rows)
+					m.list.UpdateItems(m.resources.Headers, m.search.FilteredItems())
+				} else {
+					m.list.UpdateItems(m.resources.Headers, m.resources.Rows)
+				}
+			}
+		}
+		return nil
 	case "log-options":
 		// Parse "log <container>" or "log <container> --follow"
 		follow := strings.HasSuffix(selected, " --follow")
