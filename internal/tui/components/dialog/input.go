@@ -145,6 +145,7 @@ func (m *InputModel) Reset() {
 	m.historyIndex = -1
 	m.draft = ""
 	m.suggestion = ""
+	m.actionID = ""
 }
 
 // HasSuggestion returns true when an autosuggestion is available.

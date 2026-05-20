@@ -106,8 +106,9 @@ type TabSortState struct {
 
 // Model is the main application model for the TUI
 type Model struct {
-	config  *config.Config
-	kubectl *kubectl.Kubectl
+	config     *config.Config
+	kubectl    *kubectl.Kubectl
+	configPath string
 
 	// UI state
 	viewState    ViewState
@@ -126,9 +127,10 @@ type Model struct {
 	input    *dialog.InputModel
 
 	// Pending action state
-	pendingAction string
-	pendingNames  []string
-	pendingNs     string
+	pendingAction  string
+	pendingNames   []string
+	pendingNs      string
+	pendingTabName string // name collected during multi-step add-tab flow
 
 	// Data state
 	currentContext   string
@@ -160,18 +162,13 @@ type Model struct {
 }
 
 // NewModel creates a new application model
-func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
+func NewModel(cfg *config.Config, k *kubectl.Kubectl, configPath string) *Model {
 	// Extract tab names from config, prepending Search tab
 	tabNames := make([]string, len(cfg.Tabs)+1)
 	tabNames[0] = "Search"
 	for i, tab := range cfg.Tabs {
 		tabNames[i+1] = tab.Name
 	}
-
-	// Create search input for the Search tab
-	searchInput := dialog.NewInput("kubectl get", "pods -A")
-	searchInput.WithHint("e.g. pods -A, deployments -n default, services -l app=web")
-	searchInput.WithValue("")
 
 	// Create spinner for loading indicator
 	s := spinner.New()
@@ -181,6 +178,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 	return &Model{
 		config:          cfg,
 		kubectl:         k,
+		configPath:      configPath,
 		viewState:       ViewList,
 		currentTab:      1, // Start on first configured tab, not Search
 		header:          header.New("", "", 0),
@@ -188,7 +186,7 @@ func NewModel(cfg *config.Config, k *kubectl.Kubectl) *Model {
 		list:            list.New([]string{}, [][]string{}),
 		search:          search.New(),
 		detail:          detail.New("", "", detail.FormatTable),
-		searchInput:     searchInput,
+		searchInput:     dialog.NewInput("kubectl get", "pods -A"),
 		tabSearchStates: make(map[int]string),
 		tabRuntimeSorts: make(map[int]TabSortState),
 		loading:         true,
@@ -363,19 +361,44 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch m.searchInput.Result() {
 		case dialog.InputSubmitted:
-			m.viewState = ViewList
-			newCommand := m.searchInput.Value()
+			newValue := m.searchInput.Value()
+			actionID := m.searchInput.ActionID()
 			m.searchInput.Reset()
-			if m.currentTab == SearchTabIndex {
-				m.searchCommand = newCommand
-				return m, m.startLoading(m.executeSearchCommand())
+			m.viewState = ViewList
+
+			switch actionID {
+			case "add-tab-name":
+				m.pendingTabName = strings.TrimSpace(newValue)
+				if m.pendingTabName == "" {
+					return m, nil
+				}
+				inp := dialog.NewInput("New Tab: Command", "pods -A")
+				inp.WithHint(fmt.Sprintf("kubectl get command for tab %q  (e.g. pods -A, deployments -n default)", m.pendingTabName))
+				inp.WithActionID("add-tab-command")
+				inp.SetSize(m.width, m.height)
+				m.searchInput = inp
+				m.viewState = ViewSearchTab
+				return m, nil
+
+			case "add-tab-command":
+				return m, m.addNewTab(m.pendingTabName, newValue)
+
+			case "save-search-name":
+				return m, m.saveSearchAsTab(newValue)
+
+			default:
+				// Original enter-key behavior: execute or update command
+				if m.currentTab == SearchTabIndex {
+					m.searchCommand = newValue
+					return m, m.startLoading(m.executeSearchCommand())
+				}
+				configTabIndex := m.currentTab - 1
+				if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
+					m.config.Tabs[configTabIndex].Command = newValue
+				}
+				return m, m.startLoading(m.loadResources())
 			}
-			// Config tab: update the tab's command and reload
-			configTabIndex := m.currentTab - 1
-			if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
-				m.config.Tabs[configTabIndex].Command = newCommand
-			}
-			return m, m.startLoading(m.loadResources())
+
 		case dialog.InputCancelled:
 			m.viewState = ViewList
 			m.searchInput.Reset()
@@ -435,16 +458,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			// Open command input dialog pre-filled with current command
+			var currentCmd, hint string
 			if m.currentTab == SearchTabIndex {
-				m.searchInput.SetValue(m.searchCommand)
+				currentCmd = m.searchCommand
+				hint = "e.g. pods -A, deployments -n default, services -l app=web"
 			} else {
 				configTabIndex := m.currentTab - 1
 				if configTabIndex >= 0 && configTabIndex < len(m.config.Tabs) {
-					m.searchInput.SetValue(m.config.Tabs[configTabIndex].Command)
+					currentCmd = m.config.Tabs[configTabIndex].Command
 				}
+				hint = "e.g. pods -A, deployments -n default"
 			}
+			inp := dialog.NewInput("kubectl get", "pods -A")
+			inp.WithHint(hint)
+			inp.SetValue(currentCmd)
+			inp.SetSize(m.width, m.height)
+			m.searchInput = inp
 			m.viewState = ViewSearchTab
-			m.searchInput.SetSize(m.width, m.height)
+			return m, nil
+
+		case "+":
+			// Open dialog to add a new tab to config
+			inp := dialog.NewInput("New Tab: Name", "e.g. My Pods")
+			inp.WithHint("Enter a name for the new tab, then press Enter")
+			inp.WithActionID("add-tab-name")
+			inp.SetSize(m.width, m.height)
+			m.searchInput = inp
+			m.viewState = ViewSearchTab
+			return m, nil
+
+		case "w":
+			// Save current tab's command to config.yaml
+			if m.currentTab == SearchTabIndex {
+				if m.searchCommand == "" {
+					return m, nil
+				}
+				inp := dialog.NewInput("Save Search as Tab", "e.g. My Pods")
+				inp.WithHint(fmt.Sprintf("Name for: kubectl get %s", normalizeGetCommand(m.searchCommand)))
+				inp.WithActionID("save-search-name")
+				inp.SetSize(m.width, m.height)
+				m.searchInput = inp
+				m.viewState = ViewSearchTab
+			} else {
+				return m, m.saveCurrentTabToConfig()
+			}
 			return m, nil
 		case "Y":
 			// Show detail view (YAML format)
@@ -623,6 +680,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RefreshMsg:
 		return m, tea.Batch(m.loadContext(), m.loadResources())
+
+	case TabAddedMsg:
+		m.config.Tabs = append(m.config.Tabs, config.TabConfig{
+			Name:    msg.Name,
+			Command: msg.Command,
+		})
+		m.tabs.AddTab(msg.Name)
+		newTabIndex := len(m.config.Tabs) // Search is 0, config tabs start at 1
+		m.saveCurrentTabSearch()
+		m.tabs.SetActive(newTabIndex)
+		m.currentTab = newTabIndex
+		return m, m.startLoading(m.loadResources())
+
+	case ConfigSavedMsg:
+		// silent success
+		return m, nil
 	}
 
 	return m, nil
@@ -702,9 +775,9 @@ func (m *Model) View() string {
 	} else if m.search.IsFiltered() {
 		b.WriteString("[Esc] clear filter  [/] modify filter  [d]escribe [L]ogs [D]elete [e]dit [x]exec")
 	} else if m.currentTab == SearchTabIndex {
-		b.WriteString("[Enter] enter command  [/]filter results  [r]efresh  [q]uit")
+		b.WriteString("[Enter] enter command  [/]filter results  [w]save as tab  [+]new tab  [r]efresh  [q]uit")
 	} else {
-		b.WriteString("[d]escribe [L]ogs [Y]aml [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [s]ort [/]search [r]efresh [?]help")
+		b.WriteString("[d]escribe [L]ogs [Y]aml [D]elete [e]dit [x]exec [R]estart  [c]ontext [n]amespace  [s]ort [/]search [r]efresh [w]save [+]new tab [?]help")
 	}
 
 	return b.String()
@@ -1448,6 +1521,102 @@ func (m *Model) showContextSelector() tea.Cmd {
 		m.viewState = ViewSelector
 
 		return nil
+	}
+}
+
+// addNewTab validates name+command, writes the updated config to disk, and
+// returns a TabAddedMsg so the main Update() can update in-memory state.
+func (m *Model) addNewTab(name, command string) tea.Cmd {
+	name = strings.TrimSpace(name)
+	command = normalizeGetCommand(command)
+	configPath := m.configPath
+
+	existingTabs := make([]config.TabConfig, len(m.config.Tabs))
+	copy(existingTabs, m.config.Tabs)
+	cfgCopy := *m.config
+	cfgCopy.Tabs = existingTabs
+
+	return func() tea.Msg {
+		if name == "" {
+			return ErrorMsg{Err: fmt.Errorf("tab name cannot be empty")}
+		}
+		if command == "" {
+			return ErrorMsg{Err: fmt.Errorf("command cannot be empty")}
+		}
+
+		cfgCopy.Tabs = append(cfgCopy.Tabs, config.TabConfig{Name: name, Command: command})
+
+		if err := cfgCopy.Validate(); err != nil {
+			return ErrorMsg{Err: fmt.Errorf("invalid config: %w", err)}
+		}
+
+		if configPath != "" {
+			if err := config.SaveConfig(&cfgCopy, configPath); err != nil {
+				return ErrorMsg{Err: fmt.Errorf("failed to save config: %w", err)}
+			}
+		}
+
+		return TabAddedMsg{Name: name, Command: command}
+	}
+}
+
+// saveCurrentTabToConfig persists the current tab's command to disk.
+func (m *Model) saveCurrentTabToConfig() tea.Cmd {
+	configTabIndex := m.currentTab - 1
+	if configTabIndex < 0 || configTabIndex >= len(m.config.Tabs) {
+		return nil
+	}
+	configPath := m.configPath
+	if configPath == "" {
+		return nil
+	}
+
+	existingTabs := make([]config.TabConfig, len(m.config.Tabs))
+	copy(existingTabs, m.config.Tabs)
+	cfgCopy := *m.config
+	cfgCopy.Tabs = existingTabs
+
+	return func() tea.Msg {
+		if err := config.SaveConfig(&cfgCopy, configPath); err != nil {
+			return ErrorMsg{Err: fmt.Errorf("failed to save config: %w", err)}
+		}
+		return ConfigSavedMsg{}
+	}
+}
+
+// saveSearchAsTab adds the current Search-tab command as a new named tab and
+// saves to disk.
+func (m *Model) saveSearchAsTab(name string) tea.Cmd {
+	name = strings.TrimSpace(name)
+	command := normalizeGetCommand(m.searchCommand)
+	configPath := m.configPath
+
+	existingTabs := make([]config.TabConfig, len(m.config.Tabs))
+	copy(existingTabs, m.config.Tabs)
+	cfgCopy := *m.config
+	cfgCopy.Tabs = existingTabs
+
+	return func() tea.Msg {
+		if name == "" {
+			return ErrorMsg{Err: fmt.Errorf("tab name cannot be empty")}
+		}
+		if command == "" {
+			return ErrorMsg{Err: fmt.Errorf("no command to save")}
+		}
+
+		cfgCopy.Tabs = append(cfgCopy.Tabs, config.TabConfig{Name: name, Command: command})
+
+		if err := cfgCopy.Validate(); err != nil {
+			return ErrorMsg{Err: fmt.Errorf("invalid config: %w", err)}
+		}
+
+		if configPath != "" {
+			if err := config.SaveConfig(&cfgCopy, configPath); err != nil {
+				return ErrorMsg{Err: fmt.Errorf("failed to save config: %w", err)}
+			}
+		}
+
+		return TabAddedMsg{Name: name, Command: command}
 	}
 }
 
